@@ -230,25 +230,93 @@ impl<'a> App<'a> {
     fn create_welcome_note(&mut self) {
         let content = r#"# Welcome to Ekphos
 
-A lightweight markdown research tool built in Rust.
+A lightweight, fast, terminal-based markdown research tool built with Rust.
 
-## Getting Started
+## Layout
 
-Use `j/k` to scroll, `Tab` to switch panels, `?` for help.
+Ekphos has three panels:
+
+- **Sidebar** (left): List of your notes
+- **Content** (center): Note content with markdown rendering
+- **Outline** (right): Auto-generated headings for quick navigation
+
+Use `Tab` to switch between panels.
+
+## Navigation
+
+- `j/k` or Arrow keys: Navigate up/down
+- `Tab`: Switch focus between panels
+- `Enter`: Jump to heading (in Outline) or open image (in Content)
+- `/`: Search notes (in Sidebar)
+- `?`: Show help dialog
+
+## Notes Management
+
+- `n`: Create new note
+- `d`: Delete current note
+- `e`: Enter edit mode
+
+## Edit Mode (Vim Keybindings)
+
+### Modes
+
+- `i`: Insert mode
+- `a`: Insert after cursor
+- `A`: Insert at end of line
+- `I`: Insert at start of line
+- `o`: New line below
+- `O`: New line above
+- `v`: Visual mode (select text)
+- `Esc`: Return to normal mode
+
+### Movement
+
+- `h/j/k/l`: Move cursor
+- `w/b`: Word forward/back
+- `0/$`: Line start/end
+- `gg/G`: Top/bottom of file
+
+### Editing
+
+- `x`: Delete character
+- `dd`: Delete line
+- `y`: Yank (copy) line
+- `p`: Paste
+- `u`: Undo
+- `Ctrl+r`: Redo
+- `Ctrl+s`: Save and exit edit mode
+
+## Markdown Support
 
 ### Headings
 
-Ekphos supports six levels of headings:
+# Heading 1
 
-#### Level 4 Heading
+## Heading 2
 
-##### Level 5 Heading
+### Heading 3
 
-###### Level 6 Heading
+#### Heading 4
 
-## Code Blocks
+##### Heading 5
 
-Inline code uses backticks. Fenced code blocks:
+###### Heading 6
+
+### Lists
+
+- Bullet item one
+- Bullet item two
+- Bullet item three
+
+* Asterisk style also works
+* Like this
+
+### Blockquotes
+
+> This is a blockquote.
+> It can span multiple lines.
+
+### Code Blocks
 
 ```rust
 fn main() {
@@ -261,33 +329,58 @@ def greet():
     return "Hello from Python"
 ```
 
-## Lists
-
-- First item
-- Second item
-- Third item with `inline code`
-
-## Blockquotes
-
-> This is a blockquote.
-> It can span multiple lines.
+### Horizontal Rules
 
 ---
 
-## Shortcuts
+### Images
 
-- `j/k`: Navigate up/down
-- `Tab`: Switch focus between panels
-- `e`: Enter edit mode
-- `n`: Create new note
-- `d`: Delete note
-- `Ctrl+S`: Save changes
-- `?`: Show help
-- `q`: Quit
+Images can be embedded using standard markdown syntax:
+
+```
+![alt text](path/to/image.png)
+```
+
+Press `Enter` or `o` on an image line to open it in your system viewer.
+
+Supported formats: PNG, JPEG, GIF, WebP, BMP
+
+For inline preview, use a compatible terminal (iTerm2, Kitty, WezTerm, Sixel).
+
+## CLI Options
+
+Run from terminal:
+
+- `ekphos --help`: Show help
+- `ekphos --version`: Show version
+- `ekphos --config`: Show config file path
+- `ekphos --dir`: Show notes directory path
+
+## Configuration
+
+Config file: `~/.config/ekphos/config.toml`
+
+```toml
+notes_dir = "~/Documents/ekphos"
+
+[theme]
+name = "catppuccin-mocha"
+```
+
+## Themes
+
+Built-in themes:
+
+- catppuccin-mocha (default)
+- catppuccin-latte
+- catppuccin-frappe
+- catppuccin-macchiato
+
+Custom themes can be added to `~/.config/ekphos/themes/`
 
 ---
 
-Happy note-taking!"#.to_string();
+Press `q` to quit. Happy note-taking!"#.to_string();
 
         let notes_path = self.config.notes_path();
         let file_path = notes_path.join("Welcome.md");
