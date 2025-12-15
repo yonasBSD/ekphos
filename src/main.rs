@@ -127,8 +127,16 @@ impl<'a> App<'a> {
         // Initialize image picker for terminal graphics
         let picker = Picker::from_query_stdio().ok();
 
+        // Check if notes directory exists (if onboarding was complete)
+        let notes_dir_exists = if config.onboarding_complete {
+            config.notes_path().exists()
+        } else {
+            false
+        };
+
         // Determine if we need onboarding
-        let dialog = if !config.onboarding_complete {
+        // Show onboarding if not complete OR if notes directory was deleted
+        let dialog = if !config.onboarding_complete || (config.onboarding_complete && !notes_dir_exists) {
             DialogState::Onboarding
         } else {
             DialogState::None
@@ -146,7 +154,7 @@ impl<'a> App<'a> {
             picker,
             image_cache: HashMap::new(),
             current_image: None,
-            show_welcome: config.onboarding_complete,
+            show_welcome: config.onboarding_complete && !config.welcome_shown && notes_dir_exists,
             outline: Vec::new(),
             outline_state: ListState::default(),
             vim_mode: VimMode::Normal,
@@ -161,8 +169,8 @@ impl<'a> App<'a> {
             filtered_indices: Vec::new(),
         };
 
-        // Load notes if onboarding is complete
-        if app.config.onboarding_complete {
+        // Load notes if onboarding is complete and directory exists
+        if app.config.onboarding_complete && notes_dir_exists {
             app.load_notes_from_dir();
         }
 
@@ -366,6 +374,8 @@ Happy note-taking!"#.to_string();
 
     fn dismiss_welcome(&mut self) {
         self.show_welcome = false;
+        self.config.welcome_shown = true;
+        let _ = self.config.save();
     }
 
     fn update_outline(&mut self) {
@@ -451,6 +461,25 @@ Happy note-taking!"#.to_string();
     fn previous_content_line(&mut self) {
         if self.content_cursor > 0 {
             self.content_cursor -= 1;
+        }
+    }
+
+    fn sync_outline_to_content(&mut self) {
+        if self.outline.is_empty() {
+            return;
+        }
+        // Find the outline item that corresponds to the current content line
+        // or the closest heading before the current line
+        let mut best_match: Option<usize> = None;
+        for (i, item) in self.outline.iter().enumerate() {
+            if item.line <= self.content_cursor {
+                best_match = Some(i);
+            } else {
+                break;
+            }
+        }
+        if let Some(idx) = best_match {
+            self.outline_state.select(Some(idx));
         }
     }
 
@@ -685,14 +714,20 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                         MouseEventKind::ScrollDown => {
                             match app.focus {
                                 Focus::Sidebar => app.next_note(),
-                                Focus::Content => app.next_content_line(),
+                                Focus::Content => {
+                                    app.next_content_line();
+                                    app.sync_outline_to_content();
+                                }
                                 Focus::Outline => app.next_outline(),
                             }
                         }
                         MouseEventKind::ScrollUp => {
                             match app.focus {
                                 Focus::Sidebar => app.previous_note(),
-                                Focus::Content => app.previous_content_line(),
+                                Focus::Content => {
+                                    app.previous_content_line();
+                                    app.sync_outline_to_content();
+                                }
                                 Focus::Outline => app.previous_outline(),
                             }
                         }
@@ -849,14 +884,20 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                                 match app.focus {
                                     Focus::Sidebar => app.next_note(),
                                     Focus::Outline => app.next_outline(),
-                                    Focus::Content => app.next_content_line(),
+                                    Focus::Content => {
+                                        app.next_content_line();
+                                        app.sync_outline_to_content();
+                                    }
                                 }
                             }
                             KeyCode::Up | KeyCode::Char('k') => {
                                 match app.focus {
                                     Focus::Sidebar => app.previous_note(),
                                     Focus::Outline => app.previous_outline(),
-                                    Focus::Content => app.previous_content_line(),
+                                    Focus::Content => {
+                                        app.previous_content_line();
+                                        app.sync_outline_to_content();
+                                    }
                                 }
                             }
                             KeyCode::Enter => {
@@ -1433,18 +1474,12 @@ fn render_code_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_cur
     f.render_widget(paragraph, area);
 }
 
-fn render_code_fence(f: &mut Frame, theme: &Theme, lang: &str, area: Rect, is_cursor: bool) {
+fn render_code_fence(f: &mut Frame, theme: &Theme, _lang: &str, area: Rect, is_cursor: bool) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
-
-    let label = if lang.is_empty() {
-        "code".to_string()
-    } else {
-        lang.to_string()
-    };
 
     let styled_line = Line::from(vec![
         Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-        Span::styled(format!("┌─ {} ", label), Style::default().fg(theme.surface2)),
+        Span::styled("───", Style::default().fg(theme.surface2)),
     ]);
 
     let style = if is_cursor {
@@ -1605,11 +1640,12 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
         ((app.content_cursor + 1) * 100) / app.content_items.len()
     };
 
-    // Get current note title
-    let note_title = app
+    // Get current note file path
+    let note_path = app
         .current_note()
-        .map(|n| n.title.as_str())
-        .unwrap_or("No file");
+        .and_then(|n| n.file_path.as_ref())
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "No file".to_string());
 
     // Get current mode indicator
     let mode_indicator = match app.mode {
@@ -1642,7 +1678,7 @@ fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     );
 
     let file_path = Span::styled(
-        format!(" {} ", note_title),
+        format!(" {} ", note_path),
         Style::default().fg(theme.text),
     );
 

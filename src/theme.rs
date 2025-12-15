@@ -13,6 +13,8 @@ pub struct Config {
     pub notes_dir: String,
     #[serde(default)]
     pub onboarding_complete: bool,
+    #[serde(default)]
+    pub welcome_shown: bool,
 }
 
 fn default_notes_dir() -> String {
@@ -29,6 +31,7 @@ impl Default for Config {
             theme: ThemeConfig::default(),
             notes_dir: default_notes_dir(),
             onboarding_complete: false,
+            welcome_shown: false,
         }
     }
 }
