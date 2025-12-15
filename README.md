@@ -29,12 +29,12 @@ cargo install ekphos
 
 ## CLI Options
 
-| Flag             | Description              |
-| ---------------- | ------------------------ |
-| `-h`, `--help`   | Print help information   |
-| `-v`, `--version`| Print version            |
-| `-c`, `--config` | Print config file path   |
-| `-d`, `--dir`    | Print notes directory    |
+| Flag              | Description            |
+| ----------------- | ---------------------- |
+| `-h`, `--help`    | Print help information |
+| `-v`, `--version` | Print version          |
+| `-c`, `--config`  | Print config file path |
+| `-d`, `--dir`     | Print notes directory  |
 
 ## Uninstall
 
@@ -181,16 +181,16 @@ Press `v` in normal mode to enter visual mode for text selection.
 
 ### Supported Markdown
 
-| Syntax            | Rendered As           |
-| ----------------- | --------------------- |
-| `# Heading`       | ◆ HEADING (blue)      |
-| `## Heading`      | ■ Heading (green)     |
-| `### Heading`     | ▸ Heading (yellow)    |
-| `#### Heading`    | › Heading (mauve)     |
-| `##### Heading`   | Heading (teal)        |
-| `###### Heading`  | *Heading* (subtle)    |
-| `- item`          | • item                |
-| `![alt](path)`    | Inline image          |
+| Syntax           | Rendered As        |
+| ---------------- | ------------------ |
+| `# Heading`      | ◆ HEADING (blue)   |
+| `## Heading`     | ■ Heading (green)  |
+| `### Heading`    | ▸ Heading (yellow) |
+| `#### Heading`   | › Heading (mauve)  |
+| `##### Heading`  | Heading (teal)     |
+| `###### Heading` | _Heading_ (subtle) |
+| `- item`         | • item             |
+| `![alt](path)`   | Inline image       |
 
 ### Adding Images
 
@@ -255,3 +255,11 @@ make run
 ## License
 
 MIT
+
+## Disclaimer
+
+This project is in an early development stage, so there will be frequent unexpected breaking changes throughout the pre-release, but things should remain usable throughout this stage.
+
+## Socials
+
+We don't have socials yet, but things are open for discussion, you can DM hanebox via telegram here: https://t.me/havernut
