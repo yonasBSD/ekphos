@@ -9,7 +9,7 @@ services:
     #   dockerfile: Dockerfile
     container_name: ekphos
     ports:
-      - "22:22"  # Map host port 2222 to container port 22
+      - "2222:22"  # Map host port 2222 to container port 22
     volumes:
       - ./config/authorized_keys:/config/authorized_keys:ro  # Mount authorized_keys as read-only
       - ./data:/data  # Persist data directory
