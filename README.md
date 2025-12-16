@@ -15,15 +15,6 @@ An open source, lightweight, fast, terminal-based markdown research tool built w
 
 ## Installation
 
-### Using Make
-
-```bash
-git clone https://github.com/hanebox/ekphos.git
-cd ekphos
-make
-sudo make install
-```
-
 ### Using Cargo
 
 ```bash
@@ -33,12 +24,23 @@ cargo install ekphos
 ### Using Docker
 
 ```bash
+git clone https://github.com/hanebox/ekphos.git
+cd ekphos
 docker build -t ekphos-ssh .
 docker compose up -d
 ```
 
 and after the container is up, you can SSH into the machine with the following command
 `ssh ekphos@your-docker-container-ip`
+
+### Using Make
+
+```bash
+git clone https://github.com/hanebox/ekphos.git
+cd ekphos
+make
+sudo make install
+```
 
 ## Update
 
