@@ -770,6 +770,11 @@ Press `q` to quit. Happy note-taking!"#.to_string();
     fn cancel_edit(&mut self) {
         self.mode = Mode::Normal;
     }
+
+    fn highlight_current_word(&mut self) {
+        self.textarea.cancel_selection();
+        self.textarea.start_selection();
+    }
 }
 
 fn print_help() {
@@ -1076,26 +1081,32 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                             VimMode::Normal => {
                                 match key.code {
                                     KeyCode::Char('i') => {
+                                        app.textarea.cancel_selection();
                                         app.vim_mode = VimMode::Insert;
                                     }
                                     KeyCode::Char('a') => {
+                                        app.textarea.cancel_selection();
                                         app.vim_mode = VimMode::Insert;
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Forward);
                                     }
                                     KeyCode::Char('A') => {
+                                        app.textarea.cancel_selection();
                                         app.vim_mode = VimMode::Insert;
                                         app.textarea.move_cursor(tui_textarea::CursorMove::End);
                                     }
                                     KeyCode::Char('I') => {
+                                        app.textarea.cancel_selection();
                                         app.vim_mode = VimMode::Insert;
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Head);
                                     }
                                     KeyCode::Char('o') => {
+                                        app.textarea.cancel_selection();
                                         app.vim_mode = VimMode::Insert;
                                         app.textarea.move_cursor(tui_textarea::CursorMove::End);
                                         app.textarea.insert_newline();
                                     }
                                     KeyCode::Char('O') => {
+                                        app.textarea.cancel_selection();
                                         app.vim_mode = VimMode::Insert;
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Head);
                                         app.textarea.insert_newline();
@@ -1103,68 +1114,74 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                                     }
                                     KeyCode::Char('v') => {
                                         app.vim_mode = VimMode::Visual;
+                                        app.textarea.cancel_selection();
                                         app.textarea.start_selection();
                                     }
-                                    KeyCode::Char('h') | KeyCode::Left => {
-                                        app.textarea.move_cursor(tui_textarea::CursorMove::Back);
+                                    KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('b') => {
+                                        // Start selection, then move - selection shows what will be affected
+                                        app.highlight_current_word();
+                                        app.textarea.move_cursor(tui_textarea::CursorMove::WordBack);
                                     }
                                     KeyCode::Char('j') | KeyCode::Down => {
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Down);
                                     }
                                     KeyCode::Char('k') | KeyCode::Up => {
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Up);
                                     }
-                                    KeyCode::Char('l') | KeyCode::Right => {
-                                        app.textarea.move_cursor(tui_textarea::CursorMove::Forward);
-                                    }
-                                    KeyCode::Char('w') => {
+                                    KeyCode::Char('l') | KeyCode::Right | KeyCode::Char('w') => {
+                                        // Start selection, then move - selection shows what will be affected
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::WordForward);
                                     }
-                                    KeyCode::Char('b') => {
-                                        app.textarea.move_cursor(tui_textarea::CursorMove::WordBack);
-                                    }
                                     KeyCode::Char('0') => {
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Head);
                                     }
                                     KeyCode::Char('$') => {
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::End);
                                     }
                                     KeyCode::Char('g') => {
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Top);
                                     }
                                     KeyCode::Char('G') => {
+                                        app.highlight_current_word();
                                         app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
                                     }
                                     KeyCode::Char('x') => {
+                                        app.textarea.cancel_selection();
                                         app.textarea.delete_char();
                                     }
                                     KeyCode::Char('d') => {
-                                        app.textarea.delete_line_by_head();
-                                        app.textarea.delete_line_by_end();
-                                        app.textarea.delete_newline();
+                                        // Delete the highlighted word (selection)
+                                        app.textarea.cut();
                                     }
                                     KeyCode::Char('y') => {
-                                        // Yank current line
-                                        app.textarea.move_cursor(tui_textarea::CursorMove::Head);
-                                        app.textarea.start_selection();
-                                        app.textarea.move_cursor(tui_textarea::CursorMove::End);
+                                        // Yank current selection
                                         app.textarea.copy();
-                                        app.textarea.cancel_selection();
                                     }
                                     KeyCode::Char('p') => {
+                                        app.textarea.cancel_selection();
                                         app.textarea.paste();
                                     }
                                     KeyCode::Char('u') => {
+                                        app.textarea.cancel_selection();
                                         app.textarea.undo();
                                     }
                                     KeyCode::Char('r') if key.modifiers == KeyModifiers::CONTROL => {
+                                        app.textarea.cancel_selection();
                                         app.textarea.redo();
                                     }
                                     KeyCode::Esc => {
+                                        app.textarea.cancel_selection();
                                         app.cancel_edit();
                                         app.vim_mode = VimMode::Normal;
                                     }
                                     KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
+                                        app.textarea.cancel_selection();
                                         app.save_edit();
                                         app.vim_mode = VimMode::Normal;
                                     }
@@ -1232,8 +1249,8 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App)
                                         app.vim_mode = VimMode::Normal;
                                     }
                                     KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
-                                        app.save_edit();
                                         app.textarea.cancel_selection();
+                                        app.save_edit();
                                         app.vim_mode = VimMode::Normal;
                                     }
                                     _ => {}
