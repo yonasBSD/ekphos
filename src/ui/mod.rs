@@ -17,7 +17,7 @@ pub use dialogs::{
     render_create_folder_dialog, render_create_note_dialog, render_create_note_in_folder_dialog,
     render_delete_confirm_dialog, render_delete_folder_confirm_dialog, render_directory_not_found_dialog,
     render_empty_directory_dialog, render_help_dialog, render_onboarding_dialog, render_rename_folder_dialog,
-    render_rename_note_dialog, render_welcome_dialog,
+    render_rename_note_dialog, render_unsaved_changes_dialog, render_welcome_dialog,
 };
 pub use editor::render_editor;
 pub use outline::render_outline;
@@ -72,6 +72,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         DialogState::Help => render_help_dialog(f, app),
         DialogState::EmptyDirectory => render_empty_directory_dialog(f, app),
         DialogState::DirectoryNotFound => render_directory_not_found_dialog(f, app),
+        DialogState::UnsavedChanges => render_unsaved_changes_dialog(f, app),
         DialogState::None => {
             // Render welcome dialog on top if active
             if app.show_welcome {

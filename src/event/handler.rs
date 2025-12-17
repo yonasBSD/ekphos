@@ -103,6 +103,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) -> io::Resul
         DialogState::DirectoryNotFound => {
             return Ok(handle_directory_not_found_dialog(app, key));
         }
+        DialogState::UnsavedChanges => {
+            handle_unsaved_changes_dialog(app, key);
+            return Ok(false);
+        }
         DialogState::None => {}
     }
 
@@ -263,6 +267,25 @@ fn handle_delete_folder_confirm_dialog(app: &mut App, key: crossterm::event::Key
             app.dialog = DialogState::None;
         }
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            app.dialog = DialogState::None;
+        }
+        _ => {}
+    }
+}
+
+fn handle_unsaved_changes_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') => {
+            app.save_edit();
+            app.vim_mode = VimMode::Normal;
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            app.cancel_edit();
+            app.vim_mode = VimMode::Normal;
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Esc => {
             app.dialog = DialogState::None;
         }
         _ => {}
@@ -716,8 +739,12 @@ fn handle_vim_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) {
         KeyCode::Esc => {
             app.pending_operator = None;
             app.textarea.cancel_selection();
-            app.cancel_edit();
-            app.vim_mode = VimMode::Normal;
+            if app.has_unsaved_changes() {
+                app.dialog = DialogState::UnsavedChanges;
+            } else {
+                app.cancel_edit();
+                app.vim_mode = VimMode::Normal;
+            }
         }
         KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
             app.pending_operator = None;

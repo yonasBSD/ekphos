@@ -297,6 +297,53 @@ pub fn render_delete_confirm_dialog(f: &mut Frame, app: &App) {
     f.render_widget(dialog, dialog_area);
 }
 
+pub fn render_unsaved_changes_dialog(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let theme = &app.theme;
+
+    let dialog_width = 50.min(area.width.saturating_sub(4));
+    let dialog_height = 10.min(area.height.saturating_sub(4));
+
+    let dialog_area = Rect {
+        x: (area.width.saturating_sub(dialog_width)) / 2,
+        y: (area.height.saturating_sub(dialog_height)) / 2,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    f.render_widget(Clear, dialog_area);
+
+    let content = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "You have unsaved changes!",
+            Style::default().fg(theme.yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Do you want to save before exiting?",
+            Style::default().fg(theme.foreground),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "y: Save  |  n: Discard  |  Esc: Cancel",
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
+        )),
+    ];
+
+    let dialog = Paragraph::new(content)
+        .block(
+            Block::default()
+                .title(" Unsaved Changes ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.yellow))
+                .style(Style::default().bg(theme.background)),
+        )
+        .alignment(Alignment::Center);
+
+    f.render_widget(dialog, dialog_area);
+}
+
 pub fn render_delete_folder_confirm_dialog(f: &mut Frame, app: &App) {
     let area = f.area();
     let theme = &app.theme;

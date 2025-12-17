@@ -40,6 +40,7 @@ pub enum DialogState {
     Help,
     EmptyDirectory,
     DirectoryNotFound,
+    UnsavedChanges,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -1301,11 +1302,7 @@ Press `q` to quit. Happy note-taking!"#.to_string();
                 .fg(self.theme.selection_text)
                 .bg(self.theme.selection_bg)
         );
-        if self.vim_mode == VimMode::Visual {
-            self.textarea.set_cursor_line_style(Style::default().bg(self.theme.bright_black));
-        } else {
-            self.textarea.set_cursor_line_style(Style::default());
-        }
+        self.textarea.set_cursor_line_style(Style::default());
     }
 
     pub fn save_edit(&mut self) {
@@ -1327,6 +1324,15 @@ Press `q` to quit. Happy note-taking!"#.to_string();
         let (cursor_row, _) = self.textarea.cursor();
         self.mode = Mode::Normal;
         self.content_cursor = cursor_row.min(self.content_items.len().saturating_sub(1));
+    }
+
+    pub fn has_unsaved_changes(&self) -> bool {
+        if let Some(note) = self.notes.get(self.selected_note) {
+            let current_content = self.textarea.lines().join("\n");
+            current_content != note.content
+        } else {
+            false
+        }
     }
 }
 
