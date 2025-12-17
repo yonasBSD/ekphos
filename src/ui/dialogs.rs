@@ -32,69 +32,69 @@ pub fn render_welcome_dialog(f: &mut Frame, theme: &Theme) {
         Line::from(vec![
             Span::styled(
                 "   _____ _          _               ",
-                Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
             Span::styled(
                 "  | ____| | ___ __ | |__   ___  ___ ",
-                Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
             Span::styled(
                 "  |  _| | |/ / '_ \\| '_ \\ / _ \\/ __|",
-                Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
             Span::styled(
                 "  | |___|   <| |_) | | | | (_) \\__ \\",
-                Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
             Span::styled(
                 "  |_____|_|\\_\\ .__/|_| |_|\\___/|___/",
-                Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
             Span::styled(
                 "             |_|                    ",
-                Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+                Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(""),
         Line::from(Span::styled(
             "A lightweight markdown research tool",
-            Style::default().fg(theme.text),
+            Style::default().fg(theme.foreground),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("j/k ", Style::default().fg(theme.peach)),
-            Span::styled("Navigate notes", Style::default().fg(theme.subtext0)),
+            Span::styled("j/k ", Style::default().fg(theme.yellow)),
+            Span::styled("Navigate notes", Style::default().fg(theme.white)),
         ]),
         Line::from(vec![
-            Span::styled("Tab ", Style::default().fg(theme.peach)),
-            Span::styled("Switch focus  ", Style::default().fg(theme.subtext0)),
+            Span::styled("Tab ", Style::default().fg(theme.yellow)),
+            Span::styled("Switch focus  ", Style::default().fg(theme.white)),
         ]),
         Line::from(vec![
-            Span::styled("e   ", Style::default().fg(theme.peach)),
-            Span::styled("Edit note     ", Style::default().fg(theme.subtext0)),
+            Span::styled("e   ", Style::default().fg(theme.yellow)),
+            Span::styled("Edit note     ", Style::default().fg(theme.white)),
         ]),
         Line::from(vec![
-            Span::styled("?   ", Style::default().fg(theme.peach)),
-            Span::styled("Help          ", Style::default().fg(theme.subtext0)),
+            Span::styled("?   ", Style::default().fg(theme.yellow)),
+            Span::styled("Help          ", Style::default().fg(theme.white)),
         ]),
         Line::from(vec![
-            Span::styled("q   ", Style::default().fg(theme.peach)),
-            Span::styled("Quit          ", Style::default().fg(theme.subtext0)),
+            Span::styled("q   ", Style::default().fg(theme.yellow)),
+            Span::styled("Quit          ", Style::default().fg(theme.white)),
         ]),
         Line::from(""),
         Line::from(Span::styled(
             "Press Enter or Space to continue",
-            Style::default().fg(theme.overlay0).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -103,8 +103,8 @@ pub fn render_welcome_dialog(f: &mut Frame, theme: &Theme) {
             Block::default()
                 .title(" Welcome ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.lavender))
-                .style(Style::default().bg(theme.base)),
+                .border_style(Style::default().fg(theme.bright_blue))
+                .style(Style::default().bg(theme.background)),
         )
         .alignment(Alignment::Center);
 
@@ -133,23 +133,23 @@ pub fn render_onboarding_dialog(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             "Welcome to Ekphos!",
-            Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD),
         )),
         Line::from(""),
         Line::from(Span::styled(
             "Where would you like to store your notes?",
-            Style::default().fg(theme.text),
+            Style::default().fg(theme.foreground),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("> ", Style::default().fg(theme.peach)),
-            Span::styled(&app.input_buffer, Style::default().fg(theme.text)),
-            Span::styled("█", Style::default().fg(theme.peach)),
+            Span::styled("> ", Style::default().fg(theme.yellow)),
+            Span::styled(&app.input_buffer, Style::default().fg(theme.foreground)),
+            Span::styled("█", Style::default().fg(theme.yellow)),
         ]),
         Line::from(""),
         Line::from(Span::styled(
             "Press Enter to confirm",
-            Style::default().fg(theme.overlay0).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -158,8 +158,8 @@ pub fn render_onboarding_dialog(f: &mut Frame, app: &App) {
             Block::default()
                 .title(" Setup ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.lavender))
-                .style(Style::default().bg(theme.base)),
+                .border_style(Style::default().fg(theme.bright_blue))
+                .style(Style::default().bg(theme.background)),
         )
         .alignment(Alignment::Center);
 
@@ -188,18 +188,18 @@ pub fn render_create_note_dialog(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             "Enter note name:",
-            Style::default().fg(theme.text),
+            Style::default().fg(theme.foreground),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("> ", Style::default().fg(theme.peach)),
-            Span::styled(&app.input_buffer, Style::default().fg(theme.text)),
-            Span::styled("█", Style::default().fg(theme.peach)),
+            Span::styled("> ", Style::default().fg(theme.yellow)),
+            Span::styled(&app.input_buffer, Style::default().fg(theme.foreground)),
+            Span::styled("█", Style::default().fg(theme.yellow)),
         ]),
         Line::from(""),
         Line::from(Span::styled(
             "Enter: Create  |  Esc: Cancel",
-            Style::default().fg(theme.overlay0).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -209,7 +209,7 @@ pub fn render_create_note_dialog(f: &mut Frame, app: &App) {
                 .title(" New Note ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.green))
-                .style(Style::default().bg(theme.base)),
+                .style(Style::default().bg(theme.background)),
         )
         .alignment(Alignment::Center);
 
@@ -247,12 +247,12 @@ pub fn render_delete_confirm_dialog(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             note_name,
-            Style::default().fg(theme.text),
+            Style::default().fg(theme.foreground),
         )),
         Line::from(""),
         Line::from(Span::styled(
             "y: Yes  |  n: No",
-            Style::default().fg(theme.overlay0).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -262,7 +262,7 @@ pub fn render_delete_confirm_dialog(f: &mut Frame, app: &App) {
                 .title(" Confirm Delete ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.red))
-                .style(Style::default().bg(theme.base)),
+                .style(Style::default().bg(theme.background)),
         )
         .alignment(Alignment::Center);
 
@@ -289,18 +289,18 @@ pub fn render_rename_note_dialog(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             "Enter new name:",
-            Style::default().fg(theme.text),
+            Style::default().fg(theme.foreground),
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("> ", Style::default().fg(theme.peach)),
-            Span::styled(&app.input_buffer, Style::default().fg(theme.text)),
-            Span::styled("█", Style::default().fg(theme.peach)),
+            Span::styled("> ", Style::default().fg(theme.yellow)),
+            Span::styled(&app.input_buffer, Style::default().fg(theme.foreground)),
+            Span::styled("█", Style::default().fg(theme.yellow)),
         ]),
         Line::from(""),
         Line::from(Span::styled(
             "Enter: Rename  |  Esc: Cancel",
-            Style::default().fg(theme.overlay0).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -310,7 +310,63 @@ pub fn render_rename_note_dialog(f: &mut Frame, app: &App) {
                 .title(" Rename Note ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.yellow))
-                .style(Style::default().bg(theme.base)),
+                .style(Style::default().bg(theme.background)),
+        )
+        .alignment(Alignment::Center);
+
+    f.render_widget(dialog, dialog_area);
+}
+
+pub fn render_empty_directory_dialog(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let theme = &app.theme;
+
+    let dialog_width = 55.min(area.width.saturating_sub(4));
+    let dialog_height = 12.min(area.height.saturating_sub(4));
+
+    let dialog_area = Rect {
+        x: (area.width.saturating_sub(dialog_width)) / 2,
+        y: (area.height.saturating_sub(dialog_height)) / 2,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    f.render_widget(Clear, dialog_area);
+
+    let content = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Oops! This directory seems empty",
+            Style::default().fg(theme.yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "No markdown notes found in:",
+            Style::default().fg(theme.foreground),
+        )),
+        Line::from(Span::styled(
+            &app.config.notes_dir,
+            Style::default().fg(theme.white),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press 'n' to create your first note!",
+            Style::default().fg(theme.green),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press Enter or Esc to continue",
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
+        )),
+    ];
+
+    let dialog = Paragraph::new(content)
+        .block(
+            Block::default()
+                .title(" Getting Started ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.yellow))
+                .style(Style::default().bg(theme.background)),
         )
         .alignment(Alignment::Center);
 
@@ -335,9 +391,9 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
     // Clear the area behind the dialog
     f.render_widget(Clear, dialog_area);
 
-    let key_style = Style::default().fg(theme.peach);
-    let desc_style = Style::default().fg(theme.subtext0);
-    let header_style = Style::default().fg(theme.lavender).add_modifier(Modifier::BOLD);
+    let key_style = Style::default().fg(theme.yellow);
+    let desc_style = Style::default().fg(theme.white);
+    let header_style = Style::default().fg(theme.bright_blue).add_modifier(Modifier::BOLD);
 
     let content = vec![
         Line::from(""),
@@ -392,7 +448,7 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
         ]),
         Line::from(vec![
             Span::styled("  d/x      ", key_style),
-            Span::styled("Delete line / character", desc_style),
+            Span::styled("Delete selection / character", desc_style),
         ]),
         Line::from(vec![
             Span::styled("  u/Ctrl+r ", key_style),
@@ -419,7 +475,7 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
         Line::from(""),
         Line::from(Span::styled(
             "Press Esc or ? to close",
-            Style::default().fg(theme.overlay0).add_modifier(Modifier::ITALIC),
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
 
@@ -428,10 +484,73 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
             Block::default()
                 .title(" Help ")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.lavender))
-                .style(Style::default().bg(theme.base)),
+                .border_style(Style::default().fg(theme.bright_blue))
+                .style(Style::default().bg(theme.background)),
         )
         .alignment(Alignment::Left);
+
+    f.render_widget(dialog, dialog_area);
+}
+
+pub fn render_directory_not_found_dialog(f: &mut Frame, app: &App) {
+    let area = f.area();
+    let theme = &app.theme;
+
+    let dialog_width = 58.min(area.width.saturating_sub(4));
+    let dialog_height = 14.min(area.height.saturating_sub(4));
+
+    let dialog_area = Rect {
+        x: (area.width.saturating_sub(dialog_width)) / 2,
+        y: (area.height.saturating_sub(dialog_height)) / 2,
+        width: dialog_width,
+        height: dialog_height,
+    };
+
+    f.render_widget(Clear, dialog_area);
+
+    let content = vec![
+        Line::from(""),
+        Line::from(Span::styled(
+            "Directory Not Found",
+            Style::default().fg(theme.red).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "The configured notes directory does not exist:",
+            Style::default().fg(theme.foreground),
+        )),
+        Line::from(Span::styled(
+            &app.config.notes_dir,
+            Style::default().fg(theme.yellow),
+        )),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Would you like to create it?",
+            Style::default().fg(theme.foreground),
+        )),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("c", Style::default().fg(theme.green).add_modifier(Modifier::BOLD)),
+            Span::styled(" Create directory  ", Style::default().fg(theme.white)),
+            Span::styled("q", Style::default().fg(theme.red).add_modifier(Modifier::BOLD)),
+            Span::styled(" Quit and fix config", Style::default().fg(theme.white)),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Config: ~/.config/ekphos/config.toml",
+            Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
+        )),
+    ];
+
+    let dialog = Paragraph::new(content)
+        .block(
+            Block::default()
+                .title(" Error ")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(theme.red))
+                .style(Style::default().bg(theme.background)),
+        )
+        .alignment(Alignment::Center);
 
     f.render_widget(dialog, dialog_area);
 }

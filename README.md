@@ -71,61 +71,71 @@ sudo make uninstall
 cargo uninstall ekphos
 ```
 
-### Remove config (optional)
-
-```bash
-rm -rf ~/.config/ekphos
-```
-
 ## Configuration
 
 Configuration is stored in `~/.config/ekphos/config.toml`.
 
 ```toml
-# General settings
-theme = "catppuccin-mocha"
+# ~/.config/ekphos/config.toml
 notes_dir = "~/Documents/ekphos"
-
-# Keybinds
-[keybinds]
-quit = "q"
-edit = "e"
-save = "ctrl+s"
-navigate_up = "k"
-navigate_down = "j"
-switch_focus = "tab"
+welcome_shown = false
+theme = "catppuccin-mocha"
 ```
+
+| Setting         | Description                          | Default              |
+| --------------- | ------------------------------------ | -------------------- |
+| `notes_dir`     | Directory where notes are stored     | `~/Documents/ekphos` |
+| `welcome_shown` | Show welcome dialog on startup       | `true`               |
+| `theme`         | Theme name (without .toml extension) | `catppuccin-mocha`   |
+
+> **Note:** This configuration format requires v0.3.0 or later. Earlier versions have a broken config system, please upgrade to v0.3.0 to enjoy proper configuration and theming support.
 
 ## Themes
 
-Themes are stored in `~/.config/ekphos/themes/`.
+Themes are stored in `~/.config/ekphos/themes/` and use the **Alacritty color scheme format**.
 
-### Default Themes
+### Bundled Theme
 
 - `catppuccin-mocha` (default)
-- `catppuccin-latte`
-- `catppuccin-frappe`
-- `catppuccin-macchiato`
 
 ### Custom Themes
 
-Create a `.toml` file in the themes directory:
+Create a `.toml` file in the themes directory using the Alacritty color format:
 
 ```toml
 # ~/.config/ekphos/themes/mytheme.toml
-name = "mytheme"
 
-[colors]
-base = "#1e1e2e"
-surface0 = "#313244"
-text = "#cdd6f4"
-subtext0 = "#a6adc8"
-overlay0 = "#6c7086"
-lavender = "#b4befe"
-peach = "#fab387"
-green = "#a6e3a1"
+[colors.primary]
+background = "#1e1e2e"
+foreground = "#cdd6f4"
+
+[colors.cursor]
+text = "#1e1e2e"
+cursor = "#f5e0dc"
+
+[colors.selection]
+text = "#1e1e2e"
+background = "#f5e0dc"
+
+[colors.normal]
+black = "#45475a"
 red = "#f38ba8"
+green = "#a6e3a1"
 yellow = "#f9e2af"
+blue = "#89b4fa"
+magenta = "#f5c2e7"
+cyan = "#94e2d5"
+white = "#bac2de"
+
+[colors.bright]
+black = "#585b70"
+red = "#f38ba8"
+green = "#a6e3a1"
+yellow = "#f9e2af"
+blue = "#89b4fa"
+magenta = "#f5c2e7"
+cyan = "#94e2d5"
+white = "#a6adc8"
 ```
 
 Then set in config:
@@ -133,6 +143,32 @@ Then set in config:
 ```toml
 theme = "mytheme"
 ```
+
+### Using Alacritty Themes
+
+Ekphos is fully compatible with [Alacritty Themes](https://github.com/alacritty/alacritty-theme). To use any Alacritty theme:
+
+1. **Browse themes** at https://github.com/alacritty/alacritty-theme/tree/master/themes
+2. **Copy the theme file** (e.g., `dracula.toml`) to your themes directory:
+   ```bash
+   # Example: Download Dracula theme
+   curl -o ~/.config/ekphos/themes/dracula.toml \
+     https://raw.githubusercontent.com/alacritty/alacritty-theme/master/themes/dracula.toml
+   ```
+3. **Set the theme** in your config using the filename (without `.toml`):
+   ```toml
+   # ~/.config/ekphos/config.toml
+   theme = "dracula"
+   ```
+
+**Theme naming convention:**
+| Theme File | Config Setting |
+| ---------- | -------------- |
+| `~/.config/ekphos/themes/dracula.toml` | `theme = "dracula"` |
+| `~/.config/ekphos/themes/gruvbox_dark.toml` | `theme = "gruvbox_dark"` |
+| `~/.config/ekphos/themes/tokyo-night.toml` | `theme = "tokyo-night"` |
+
+> **Note:** Alacritty theme compatibility requires v0.3.0 or later. Earlier versions have a broken theming system.
 
 ## Usage
 
@@ -144,7 +180,7 @@ Ekphos has three panels:
 - **Content** (center): Note content with markdown rendering
 - **Outline** (right): Auto-generated headings for quick navigation
 
-Use `Tab` to switch between panels.
+Use `Tab` or `Shift+Tab` to switch between panels.
 
 ### Creating Notes
 
@@ -186,13 +222,13 @@ Notes are stored as `.md` files in your configured notes directory.
 | `o`       | New line below          |
 | `O`       | New line above          |
 | `v`       | Visual mode             |
-| `h/j/k/l` | Move cursor             |
-| `w/b`     | Word forward/back       |
+| `j/k`     | Move cursor up/down     |
+| `h/l/w/b` | Move by word            |
 | `0/$`     | Line start/end          |
-| `gg/G`    | Top/bottom of file      |
+| `g/G`     | Top/bottom of file      |
 | `x`       | Delete character        |
-| `dd`      | Delete line             |
-| `y`       | Yank (copy) line        |
+| `d`       | Delete selection        |
+| `y`       | Yank (copy) selection   |
 | `p`       | Paste                   |
 | `u`       | Undo                    |
 | `Ctrl+r`  | Redo                    |
@@ -203,8 +239,10 @@ Press `v` in normal mode to enter visual mode for text selection.
 
 | Key   | Action           |
 | ----- | ---------------- |
+| `h/l` | Extend selection |
+| `w/b` | Extend by word   |
 | `y`   | Yank selection   |
-| `d`   | Delete selection |
+| `d/x` | Delete selection |
 | `Esc` | Cancel           |
 
 ### Supported Markdown
@@ -260,7 +298,7 @@ The outline panel shows all headings in your note:
 | -------- | ---------------------------- |
 | `j/k`    | Navigate up/down             |
 | `Tab`    | Switch focus                 |
-| `/`      | Search notes                 |
+| `/`      | Search notes (in sidebar)    |
 | `n`      | New note                     |
 | `r`      | Rename note                  |
 | `d`      | Delete note                  |

@@ -7,36 +7,41 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
-    #[serde(default)]
-    pub theme: ThemeConfig,
     #[serde(default = "default_notes_dir")]
     pub notes_dir: String,
-    #[serde(default)]
-    pub onboarding_complete: bool,
-    #[serde(default)]
+    #[serde(default = "default_welcome_shown")]
     pub welcome_shown: bool,
+    #[serde(default = "default_theme_name")]
+    pub theme: String,
 }
 
 fn default_notes_dir() -> String {
-    dirs::document_dir()
-        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")))
-        .join("ekphos")
-        .to_string_lossy()
-        .to_string()
+    "~/Documents/ekphos".to_string()
+}
+
+fn default_welcome_shown() -> bool {
+    true 
+}
+
+fn default_theme_name() -> String {
+    "catppuccin-mocha".to_string()
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            theme: ThemeConfig::default(),
             notes_dir: default_notes_dir(),
-            onboarding_complete: false,
-            welcome_shown: false,
+            welcome_shown: default_welcome_shown(),
+            theme: default_theme_name(),
         }
     }
 }
 
 impl Config {
+    pub fn exists() -> bool {
+        Self::config_path().exists()
+    }
+
     pub fn load() -> Self {
         let config_path = Self::config_path();
 
@@ -53,35 +58,50 @@ impl Config {
         Self::default()
     }
 
+    /// Load config, creating default config directory and file if they don't exist
+    /// Does NOT override existing config or theme files
+    pub fn load_or_create() -> Self {
+        let config_dir = Self::config_dir();
+        let config_path = Self::config_path();
+        let themes_dir = Self::themes_dir();
+
+        if !config_dir.exists() {
+            let _ = fs::create_dir_all(&config_dir);
+        }
+        if !themes_dir.exists() {
+            let _ = fs::create_dir_all(&themes_dir);
+        }
+
+        let default_theme_path = themes_dir.join("catppuccin-mocha.toml");
+        if !default_theme_path.exists() {
+            let default_theme_content = include_str!("../themes/catppuccin-mocha.toml");
+            let _ = fs::write(&default_theme_path, default_theme_content);
+        }
+
+        if !config_path.exists() {
+            let default_config = Self::default();
+            if let Ok(toml_string) = toml::to_string_pretty(&default_config) {
+                let _ = fs::write(&config_path, toml_string);
+            }
+        }
+
+        Self::load()
+    }
+
     pub fn config_path() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("ekphos")
-            .join("config.toml")
+        Self::config_dir().join("config.toml")
     }
 
     pub fn config_dir() -> PathBuf {
-        dirs::config_dir()
+        // Always use ~/.config/ekphos/ on macOS and Linux
+        dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
+            .join(".config")
             .join("ekphos")
     }
 
     pub fn themes_dir() -> PathBuf {
         Self::config_dir().join("themes")
-    }
-
-    pub fn create_default_config() -> std::io::Result<()> {
-        let config_dir = Self::config_dir();
-        fs::create_dir_all(&config_dir)?;
-
-        let config_path = Self::config_path();
-        if !config_path.exists() {
-            let default_config = Self::default();
-            let toml_string = toml::to_string_pretty(&default_config)
-                .unwrap_or_else(|_| String::new());
-            fs::write(&config_path, toml_string)?;
-        }
-        Ok(())
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -101,101 +121,179 @@ impl Config {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThemeConfig {
-    #[serde(default = "default_theme_name")]
-    pub name: String,
-    #[serde(default)]
-    pub colors: ColorConfig,
-}
 
-fn default_theme_name() -> String {
-    "catppuccin-mocha".to_string()
-}
-
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        Self {
-            name: default_theme_name(),
-            colors: ColorConfig::default(),
-        }
-    }
-}
-
+// Alacritty-compatible theme file format
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThemeFile {
-    pub name: String,
-    pub colors: ColorConfig,
+    pub colors: ThemeColors,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ColorConfig {
-    // Base colors
-    pub base: String,
-    pub mantle: String,
-    pub crust: String,
-    pub surface0: String,
-    pub surface1: String,
-    pub surface2: String,
-    pub overlay0: String,
-    pub overlay1: String,
-    pub overlay2: String,
-    pub text: String,
-    pub subtext0: String,
-    pub subtext1: String,
-
-    // Accent colors
-    pub rosewater: String,
-    pub flamingo: String,
-    pub pink: String,
-    pub mauve: String,
-    pub red: String,
-    pub maroon: String,
-    pub peach: String,
-    pub yellow: String,
-    pub green: String,
-    pub teal: String,
-    pub sky: String,
-    pub sapphire: String,
-    pub blue: String,
-    pub lavender: String,
+pub struct ThemeColors {
+    pub primary: PrimaryColors,
+    #[serde(default)]
+    pub cursor: CursorColors,
+    #[serde(default)]
+    pub selection: SelectionColors,
+    pub normal: TerminalColors,
+    pub bright: TerminalColors,
+    // Alacritty-specific fields we ignore but need to accept
+    #[serde(default, skip_serializing)]
+    pub vi_mode_cursor: Option<IgnoredColors>,
+    #[serde(default, skip_serializing)]
+    pub search: Option<IgnoredSearch>,
+    #[serde(default, skip_serializing)]
+    pub hints: Option<IgnoredHints>,
+    #[serde(default, skip_serializing)]
+    pub footer_bar: Option<IgnoredColors>,
+    #[serde(default, skip_serializing)]
+    pub line_indicator: Option<IgnoredColors>,
+    #[serde(default, skip_serializing)]
+    pub indexed_colors: Option<Vec<IgnoredIndexedColor>>,
 }
 
-impl Default for ColorConfig {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrimaryColors {
+    pub background: String,
+    pub foreground: String,
+    // Optional Alacritty fields
+    #[serde(default, skip_serializing)]
+    pub dim_foreground: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub bright_foreground: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CursorColors {
+    #[serde(default = "default_cursor_text")]
+    pub text: String,
+    #[serde(default = "default_cursor")]
+    pub cursor: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SelectionColors {
+    #[serde(default = "default_selection_text")]
+    pub text: String,
+    #[serde(default = "default_selection_bg")]
+    pub background: String,
+}
+
+fn default_cursor_text() -> String {
+    "#1e1e2e".to_string()
+}
+
+fn default_cursor() -> String {
+    "#f5e0dc".to_string()
+}
+
+fn default_selection_text() -> String {
+    "#1e1e2e".to_string()
+}
+
+fn default_selection_bg() -> String {
+    "#f5e0dc".to_string()
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TerminalColors {
+    pub black: String,
+    pub red: String,
+    pub green: String,
+    pub yellow: String,
+    pub blue: String,
+    pub magenta: String,
+    pub cyan: String,
+    pub white: String,
+}
+
+// Structs to accept and ignore Alacritty-specific fields
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IgnoredColors {
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub cursor: Option<String>,
+    #[serde(default)]
+    pub foreground: Option<String>,
+    #[serde(default)]
+    pub background: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IgnoredSearch {
+    #[serde(default)]
+    pub matches: Option<IgnoredColors>,
+    #[serde(default)]
+    pub focused_match: Option<IgnoredColors>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IgnoredHints {
+    #[serde(default)]
+    pub start: Option<IgnoredColors>,
+    #[serde(default)]
+    pub end: Option<IgnoredColors>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct IgnoredIndexedColor {
+    #[serde(default)]
+    pub index: Option<u8>,
+    #[serde(default)]
+    pub color: Option<String>,
+}
+
+impl Default for ThemeColors {
     fn default() -> Self {
-        // Default: Catppuccin Mocha
+        // Default: Catppuccin Mocha theme
         Self {
-            base: "#1e1e2e".to_string(),
-            mantle: "#181825".to_string(),
-            crust: "#11111b".to_string(),
-            surface0: "#313244".to_string(),
-            surface1: "#45475a".to_string(),
-            surface2: "#585b70".to_string(),
-            overlay0: "#6c7086".to_string(),
-            overlay1: "#7f849c".to_string(),
-            overlay2: "#9399b2".to_string(),
-            text: "#cdd6f4".to_string(),
-            subtext0: "#a6adc8".to_string(),
-            subtext1: "#bac2de".to_string(),
-            rosewater: "#f5e0dc".to_string(),
-            flamingo: "#f2cdcd".to_string(),
-            pink: "#f5c2e7".to_string(),
-            mauve: "#cba6f7".to_string(),
-            red: "#f38ba8".to_string(),
-            maroon: "#eba0ac".to_string(),
-            peach: "#fab387".to_string(),
-            yellow: "#f9e2af".to_string(),
-            green: "#a6e3a1".to_string(),
-            teal: "#94e2d5".to_string(),
-            sky: "#89dceb".to_string(),
-            sapphire: "#74c7ec".to_string(),
-            blue: "#89b4fa".to_string(),
-            lavender: "#b4befe".to_string(),
+            primary: PrimaryColors {
+                background: "#1e1e2e".to_string(),
+                foreground: "#cdd6f4".to_string(),
+                dim_foreground: None,
+                bright_foreground: None,
+            },
+            cursor: CursorColors {
+                text: "#1e1e2e".to_string(),
+                cursor: "#f5e0dc".to_string(),
+            },
+            selection: SelectionColors {
+                text: "#1e1e2e".to_string(),
+                background: "#f5e0dc".to_string(),
+            },
+            normal: TerminalColors {
+                black: "#45475a".to_string(),
+                red: "#f38ba8".to_string(),
+                green: "#a6e3a1".to_string(),
+                yellow: "#f9e2af".to_string(),
+                blue: "#89b4fa".to_string(),
+                magenta: "#f5c2e7".to_string(),
+                cyan: "#94e2d5".to_string(),
+                white: "#bac2de".to_string(),
+            },
+            bright: TerminalColors {
+                black: "#585b70".to_string(),
+                red: "#f38ba8".to_string(),
+                green: "#a6e3a1".to_string(),
+                yellow: "#f9e2af".to_string(),
+                blue: "#89b4fa".to_string(),
+                magenta: "#f5c2e7".to_string(),
+                cyan: "#94e2d5".to_string(),
+                white: "#a6adc8".to_string(),
+            },
+            // Ignored Alacritty fields
+            vi_mode_cursor: None,
+            search: None,
+            hints: None,
+            footer_bar: None,
+            line_indicator: None,
+            indexed_colors: None,
         }
     }
 }
 
-impl ColorConfig {
+impl ThemeColors {
     /// Load theme from file
     pub fn load_from_file(path: &PathBuf) -> Option<Self> {
         let content = fs::read_to_string(path).ok()?;
@@ -203,9 +301,21 @@ impl ColorConfig {
         Some(theme_file.colors)
     }
 
+    pub fn load_from_str(content: &str) -> Option<Self> {
+        let theme_file: ThemeFile = toml::from_str(content).ok()?;
+        Some(theme_file.colors)
+    }
+
+    fn get_bundled_theme(name: &str) -> Option<Self> {
+        let content = match name {
+            "catppuccin-mocha" => include_str!("../themes/catppuccin-mocha.toml"),
+            _ => return None,
+        };
+        Self::load_from_str(content)
+    }
+
     /// Find and load theme by name from themes directories
     pub fn load_by_name(name: &str) -> Option<Self> {
-        // Check user themes directory first
         let user_themes_dir = Config::themes_dir();
         if user_themes_dir.exists() {
             let theme_path = user_themes_dir.join(format!("{}.toml", name));
@@ -216,7 +326,10 @@ impl ColorConfig {
             }
         }
 
-        // Check bundled themes in current directory
+        if let Some(colors) = Self::get_bundled_theme(name) {
+            return Some(colors);
+        }
+
         let bundled_themes = PathBuf::from("themes");
         if bundled_themes.exists() {
             let theme_path = bundled_themes.join(format!("{}.toml", name));
@@ -231,90 +344,81 @@ impl ColorConfig {
     }
 }
 
-/// Runtime theme with parsed colors
+/// Runtime theme with parsed colors for UI rendering
 #[derive(Debug, Clone)]
 pub struct Theme {
-    // Base colors
-    pub base: Color,
-    pub mantle: Color,
-    pub crust: Color,
-    pub surface0: Color,
-    pub surface1: Color,
-    pub surface2: Color,
-    pub overlay0: Color,
-    pub overlay1: Color,
-    pub overlay2: Color,
-    pub text: Color,
-    pub subtext0: Color,
-    pub subtext1: Color,
+    pub background: Color,
+    pub foreground: Color,
 
-    // Accent colors
-    pub rosewater: Color,
-    pub flamingo: Color,
-    pub pink: Color,
-    pub mauve: Color,
+    pub cursor_text: Color,
+    pub cursor: Color,
+
+    pub selection_text: Color,
+    pub selection_bg: Color,
+
+    pub black: Color,
     pub red: Color,
-    pub maroon: Color,
-    pub peach: Color,
-    pub yellow: Color,
     pub green: Color,
-    pub teal: Color,
-    pub sky: Color,
-    pub sapphire: Color,
+    pub yellow: Color,
     pub blue: Color,
-    pub lavender: Color,
+    pub magenta: Color,
+    pub cyan: Color,
+    pub white: Color,
+
+    pub bright_black: Color,
+    pub bright_red: Color,
+    pub bright_green: Color,
+    pub bright_yellow: Color,
+    pub bright_blue: Color,
+    pub bright_magenta: Color,
+    pub bright_cyan: Color,
+    pub bright_white: Color,
 }
 
 impl Theme {
-    pub fn from_config(config: &ColorConfig) -> Self {
+    pub fn from_colors(colors: &ThemeColors) -> Self {
         Self {
-            base: parse_hex_color(&config.base),
-            mantle: parse_hex_color(&config.mantle),
-            crust: parse_hex_color(&config.crust),
-            surface0: parse_hex_color(&config.surface0),
-            surface1: parse_hex_color(&config.surface1),
-            surface2: parse_hex_color(&config.surface2),
-            overlay0: parse_hex_color(&config.overlay0),
-            overlay1: parse_hex_color(&config.overlay1),
-            overlay2: parse_hex_color(&config.overlay2),
-            text: parse_hex_color(&config.text),
-            subtext0: parse_hex_color(&config.subtext0),
-            subtext1: parse_hex_color(&config.subtext1),
-            rosewater: parse_hex_color(&config.rosewater),
-            flamingo: parse_hex_color(&config.flamingo),
-            pink: parse_hex_color(&config.pink),
-            mauve: parse_hex_color(&config.mauve),
-            red: parse_hex_color(&config.red),
-            maroon: parse_hex_color(&config.maroon),
-            peach: parse_hex_color(&config.peach),
-            yellow: parse_hex_color(&config.yellow),
-            green: parse_hex_color(&config.green),
-            teal: parse_hex_color(&config.teal),
-            sky: parse_hex_color(&config.sky),
-            sapphire: parse_hex_color(&config.sapphire),
-            blue: parse_hex_color(&config.blue),
-            lavender: parse_hex_color(&config.lavender),
+            background: parse_hex_color(&colors.primary.background),
+            foreground: parse_hex_color(&colors.primary.foreground),
+            cursor_text: parse_hex_color(&colors.cursor.text),
+            cursor: parse_hex_color(&colors.cursor.cursor),
+            selection_text: parse_hex_color(&colors.selection.text),
+            selection_bg: parse_hex_color(&colors.selection.background),
+            black: parse_hex_color(&colors.normal.black),
+            red: parse_hex_color(&colors.normal.red),
+            green: parse_hex_color(&colors.normal.green),
+            yellow: parse_hex_color(&colors.normal.yellow),
+            blue: parse_hex_color(&colors.normal.blue),
+            magenta: parse_hex_color(&colors.normal.magenta),
+            cyan: parse_hex_color(&colors.normal.cyan),
+            white: parse_hex_color(&colors.normal.white),
+            bright_black: parse_hex_color(&colors.bright.black),
+            bright_red: parse_hex_color(&colors.bright.red),
+            bright_green: parse_hex_color(&colors.bright.green),
+            bright_yellow: parse_hex_color(&colors.bright.yellow),
+            bright_blue: parse_hex_color(&colors.bright.blue),
+            bright_magenta: parse_hex_color(&colors.bright.magenta),
+            bright_cyan: parse_hex_color(&colors.bright.cyan),
+            bright_white: parse_hex_color(&colors.bright.white),
         }
     }
 
     pub fn from_name(name: &str) -> Self {
-        // Try to load from file first
-        if let Some(colors) = ColorConfig::load_by_name(name) {
-            return Self::from_config(&colors);
+        if let Some(colors) = ThemeColors::load_by_name(name) {
+            return Self::from_colors(&colors);
         }
-        // Fallback to default
-        Self::from_config(&ColorConfig::default())
+        Self::from_colors(&ThemeColors::default())
     }
 }
 
 impl Default for Theme {
     fn default() -> Self {
-        Self::from_config(&ColorConfig::default())
+        Self::from_colors(&ThemeColors::default())
     }
 }
 
 fn parse_hex_color(hex: &str) -> Color {
-    let hex = hex.trim_start_matches('#');
+    let hex = hex.trim_start_matches('#').trim_start_matches('\'').trim_end_matches('\'');
     if hex.len() == 6 {
         if let (Ok(r), Ok(g), Ok(b)) = (
             u8::from_str_radix(&hex[0..2], 16),

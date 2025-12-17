@@ -25,7 +25,7 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
                 1 => Style::default().fg(theme.blue).add_modifier(Modifier::BOLD),
                 2 => Style::default().fg(theme.green),
                 3 => Style::default().fg(theme.yellow),
-                _ => Style::default().fg(theme.text),
+                _ => Style::default().fg(theme.foreground),
             };
             ListItem::new(Line::from(Span::styled(
                 format!("{}{}{}", indent, prefix, item.title),
@@ -35,9 +35,9 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     let border_style = if app.focus == Focus::Outline && app.mode == Mode::Normal {
-        Style::default().fg(theme.lavender)
+        Style::default().fg(theme.bright_blue)
     } else {
-        Style::default().fg(theme.surface1)
+        Style::default().fg(theme.bright_black)
     };
 
     let outline = List::new(items)
@@ -49,7 +49,7 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
         )
         .highlight_style(
             Style::default()
-                .bg(theme.surface0)
+                .bg(theme.bright_black)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▶ ");

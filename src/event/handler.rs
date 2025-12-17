@@ -80,6 +80,13 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) -> io::Resul
             handle_help_dialog(app, key);
             return Ok(false);
         }
+        DialogState::EmptyDirectory => {
+            handle_empty_directory_dialog(app, key);
+            return Ok(false);
+        }
+        DialogState::DirectoryNotFound => {
+            return Ok(handle_directory_not_found_dialog(app, key));
+        }
         DialogState::None => {}
     }
 
@@ -188,6 +195,34 @@ fn handle_help_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
             app.dialog = DialogState::None;
         }
         _ => {}
+    }
+}
+
+fn handle_empty_directory_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Enter | KeyCode::Esc => {
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Char('n') => {
+            // Dismiss and open create note dialog
+            app.dialog = DialogState::None;
+            app.input_buffer.clear();
+            app.dialog = DialogState::CreateNote;
+        }
+        _ => {}
+    }
+}
+
+fn handle_directory_not_found_dialog(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Char('c') | KeyCode::Char('C') => {
+            app.create_notes_directory();
+            false
+        }
+        KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+            true
+        }
+        _ => false,
     }
 }
 

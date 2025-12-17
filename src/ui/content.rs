@@ -17,9 +17,9 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
 
     let border_style = if is_focused {
-        Style::default().fg(theme.lavender)
+        Style::default().fg(theme.bright_blue)
     } else {
-        Style::default().fg(theme.surface1)
+        Style::default().fg(theme.bright_black)
     };
 
     let title = app
@@ -128,7 +128,7 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
             if let Some(&(_, '*')) = chars.peek() {
                 // Found **, look for closing **
                 if i > current_start {
-                    spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.text)));
+                    spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
                 }
                 chars.next(); // consume second *
                 let bold_start = i + 2;
@@ -147,7 +147,7 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
                 if let Some(end) = bold_end {
                     spans.push(Span::styled(
                         &text[bold_start..end],
-                        Style::default().fg(theme.text).add_modifier(Modifier::BOLD),
+                        Style::default().fg(theme.foreground).add_modifier(Modifier::BOLD),
                     ));
                     current_start = end + 2;
                 } else {
@@ -161,7 +161,7 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
         // Check for `code`
         if c == '`' {
             if i > current_start {
-                spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.text)));
+                spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
             }
             let code_start = i + 1;
             let mut code_end = None;
@@ -176,7 +176,7 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
             if let Some(end) = code_end {
                 spans.push(Span::styled(
                     &text[code_start..end],
-                    Style::default().fg(theme.green).bg(theme.mantle),
+                    Style::default().fg(theme.green).bg(theme.black),
                 ));
                 current_start = end + 1;
             } else {
@@ -189,11 +189,11 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
 
     // Add remaining text
     if current_start < text.len() {
-        spans.push(Span::styled(&text[current_start..], Style::default().fg(theme.text)));
+        spans.push(Span::styled(&text[current_start..], Style::default().fg(theme.foreground)));
     }
 
     if spans.is_empty() {
-        spans.push(Span::styled(text, Style::default().fg(theme.text)));
+        spans.push(Span::styled(text, Style::default().fg(theme.foreground)));
     }
 
     spans
@@ -206,41 +206,41 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
     let styled_line = if line.starts_with("###### ") {
         // H6: Smallest, italic, subtle
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled(
                 line.trim_start_matches("###### "),
                 Style::default()
-                    .fg(theme.subtext0)
+                    .fg(theme.white)
                     .add_modifier(Modifier::ITALIC),
             ),
         ])
     } else if line.starts_with("##### ") {
         // H5: Small, muted color
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled(
                 line.trim_start_matches("##### "),
                 Style::default()
-                    .fg(theme.teal)
+                    .fg(theme.cyan)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
     } else if line.starts_with("#### ") {
         // H4: Small prefix
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-            Span::styled("› ", Style::default().fg(theme.mauve)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled("› ", Style::default().fg(theme.magenta)),
             Span::styled(
                 line.trim_start_matches("#### "),
                 Style::default()
-                    .fg(theme.mauve)
+                    .fg(theme.magenta)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
     } else if line.starts_with("### ") {
         // H3: Medium prefix
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled("▸ ", Style::default().fg(theme.yellow)),
             Span::styled(
                 line.trim_start_matches("### "),
@@ -252,7 +252,7 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
     } else if line.starts_with("## ") {
         // H2: Larger prefix
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled("■ ", Style::default().fg(theme.green)),
             Span::styled(
                 line.trim_start_matches("## "),
@@ -264,7 +264,7 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
     } else if line.starts_with("# ") {
         // H1: Largest, most prominent
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled("◆ ", Style::default().fg(theme.blue)),
             Span::styled(
                 line.trim_start_matches("# ").to_uppercase(),
@@ -276,46 +276,46 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
     } else if line.starts_with("- ") {
         // Bullet list
         let mut spans = vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-            Span::styled("• ", Style::default().fg(theme.mauve)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled("• ", Style::default().fg(theme.magenta)),
         ];
         spans.extend(parse_inline_formatting(line.trim_start_matches("- "), theme));
         Line::from(spans)
     } else if line.starts_with("> ") {
         // Blockquote
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-            Span::styled("┃ ", Style::default().fg(theme.overlay0)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled("┃ ", Style::default().fg(theme.bright_black)),
             Span::styled(
                 line.trim_start_matches("> "),
-                Style::default().fg(theme.subtext0).add_modifier(Modifier::ITALIC),
+                Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
             ),
         ])
     } else if line == "---" || line == "***" || line == "___" {
         // Horizontal rule
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-            Span::styled("─".repeat(40), Style::default().fg(theme.surface2)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled("─".repeat(40), Style::default().fg(theme.bright_black)),
         ])
     } else if line.starts_with("* ") {
         // Bullet list (asterisk variant)
         let mut spans = vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-            Span::styled("• ", Style::default().fg(theme.mauve)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled("• ", Style::default().fg(theme.magenta)),
         ];
         spans.extend(parse_inline_formatting(line.trim_start_matches("* "), theme));
         Line::from(spans)
     } else {
         // Regular text lines (including numbered lists)
         let mut spans = vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
         ];
         spans.extend(parse_inline_formatting(line, theme));
         Line::from(spans)
     };
 
     let style = if is_cursor {
-        Style::default().bg(theme.surface0)
+        Style::default().bg(theme.bright_black)
     } else {
         Style::default()
     };
@@ -330,15 +330,15 @@ fn render_code_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_cur
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
 
     let styled_line = Line::from(vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-        Span::styled("│ ", Style::default().fg(theme.surface2)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+        Span::styled("│ ", Style::default().fg(theme.bright_black)),
         Span::styled(line, Style::default().fg(theme.green)),
     ]);
 
     let style = if is_cursor {
-        Style::default().bg(theme.surface0)
+        Style::default().bg(theme.bright_black)
     } else {
-        Style::default().bg(theme.mantle)
+        Style::default().bg(theme.black)
     };
 
     let paragraph = Paragraph::new(styled_line)
@@ -351,14 +351,14 @@ fn render_code_fence(f: &mut Frame, theme: &Theme, _lang: &str, area: Rect, is_c
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
 
     let styled_line = Line::from(vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.peach)),
-        Span::styled("───", Style::default().fg(theme.surface2)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+        Span::styled("───", Style::default().fg(theme.bright_black)),
     ]);
 
     let style = if is_cursor {
-        Style::default().bg(theme.surface0)
+        Style::default().bg(theme.bright_black)
     } else {
-        Style::default().bg(theme.mantle)
+        Style::default().bg(theme.black)
     };
 
     let paragraph = Paragraph::new(styled_line)
@@ -404,9 +404,9 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
     // Create a bordered area for the image with cursor indicator
     let theme = &app.theme;
     let border_color = if is_cursor {
-        theme.peach
+        theme.yellow
     } else {
-        theme.sapphire
+        theme.cyan
     };
 
     let title = if is_cursor {
@@ -424,7 +424,7 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
 
     // Add background highlight when cursor is on image
     if is_cursor {
-        let bg = Paragraph::new("").style(Style::default().bg(theme.surface0));
+        let bg = Paragraph::new("").style(Style::default().bg(theme.bright_black));
         f.render_widget(bg, area);
     }
 

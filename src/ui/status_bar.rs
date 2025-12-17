@@ -52,26 +52,26 @@ pub fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let logo = Span::styled(
         " ◆ Ekphos ",
         Style::default()
-            .fg(theme.crust)
-            .bg(theme.lavender)
+            .fg(theme.black)
+            .bg(theme.bright_blue)
             .add_modifier(Modifier::BOLD),
     );
 
     let mode = Span::styled(
         format!(" {} ", mode_indicator),
         Style::default()
-            .fg(theme.crust)
-            .bg(theme.peach),
+            .fg(theme.black)
+            .bg(theme.yellow),
     );
 
     let file_path = Span::styled(
         format!(" {} ", note_path),
-        Style::default().fg(theme.text),
+        Style::default().fg(theme.foreground),
     );
 
     let separator = Span::styled(
         " │ ",
-        Style::default().fg(theme.surface2),
+        Style::default().fg(theme.bright_black),
     );
 
     let reading = Span::styled(
@@ -82,13 +82,13 @@ pub fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let progress = Span::styled(
         format!(" {}% ", percentage),
         Style::default()
-            .fg(theme.crust)
-            .bg(theme.mauve),
+            .fg(theme.black)
+            .bg(theme.magenta),
     );
 
     let help_key = Span::styled(
         " ? for help ",
-        Style::default().fg(theme.overlay1).bg(theme.surface1),
+        Style::default().fg(theme.white).bg(theme.bright_black),
     );
 
     // Calculate spacing for justify-between layout
@@ -101,12 +101,12 @@ pub fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let padding = available_width.saturating_sub(left_width + right_width);
 
     let mut spans = left_content;
-    spans.push(Span::styled(" ".repeat(padding), Style::default().bg(theme.surface0)));
+    spans.push(Span::styled(" ".repeat(padding), Style::default().bg(theme.bright_black)));
     spans.extend(right_content);
 
     let status_line = Line::from(spans);
     let status_bar = Paragraph::new(status_line)
-        .style(Style::default().bg(theme.surface0));
+        .style(Style::default().bg(theme.bright_black));
 
     f.render_widget(status_bar, area);
 }

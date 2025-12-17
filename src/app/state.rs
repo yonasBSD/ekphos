@@ -34,6 +34,8 @@ pub enum DialogState {
     DeleteConfirm,
     RenameNote,
     Help,
+    EmptyDirectory,
+    DirectoryNotFound,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -97,9 +99,16 @@ pub struct App<'a> {
 
 impl<'a> App<'a> {
     pub fn new() -> Self {
-        // Load config and theme first
-        let config = Config::load();
-        let theme = Theme::from_config(&config.theme.colors);
+        // Check if config exists before loading (determines if onboarding is needed)
+        // This must be checked before load_or_create() which creates the config
+        let config_exists = Config::exists();
+
+        let config = Config::load_or_create();
+
+        // For first launch: config was just created, so notes_dir won't exist yet
+        let is_first_launch = !config_exists;
+
+        let theme = Theme::from_name(&config.theme);
 
         let mut list_state = ListState::default();
         list_state.select(Some(0));
@@ -111,22 +120,27 @@ impl<'a> App<'a> {
                 .border_style(Style::default().fg(theme.blue))
                 .title(" NORMAL | Ctrl+S: Save, Esc: Exit "),
         );
-        textarea.set_cursor_line_style(Style::default().bg(theme.surface0));
+        textarea.set_cursor_line_style(Style::default().bg(theme.bright_black));
 
         // Initialize image picker for terminal graphics
         let picker = Picker::from_query_stdio().ok();
 
-        // Check if notes directory exists (if onboarding was complete)
-        let notes_dir_exists = if config.onboarding_complete {
-            config.notes_path().exists()
+        // Check if notes directory exists
+        let notes_dir_exists = config.notes_path().exists();
+
+        // Check if notes directory has any .md files
+        let notes_dir_empty = if notes_dir_exists {
+            !Self::directory_has_notes(&config.notes_path())
         } else {
-            false
+            true
         };
 
-        // Determine if we need onboarding
-        // Show onboarding if not complete OR if notes directory was deleted
-        let dialog = if !config.onboarding_complete || (config.onboarding_complete && !notes_dir_exists) {
+        let dialog = if is_first_launch {
             DialogState::Onboarding
+        } else if !notes_dir_exists {
+            DialogState::DirectoryNotFound
+        } else if notes_dir_empty {
+            DialogState::EmptyDirectory
         } else {
             DialogState::None
         };
@@ -143,7 +157,7 @@ impl<'a> App<'a> {
             picker,
             image_cache: HashMap::new(),
             current_image: None,
-            show_welcome: config.onboarding_complete && !config.welcome_shown && notes_dir_exists,
+            show_welcome: !is_first_launch && config.welcome_shown && notes_dir_exists && !notes_dir_empty,
             outline: Vec::new(),
             outline_state: ListState::default(),
             vim_mode: VimMode::Normal,
@@ -158,12 +172,24 @@ impl<'a> App<'a> {
             filtered_indices: Vec::new(),
         };
 
-        // Load notes if onboarding is complete and directory exists
-        if app.config.onboarding_complete && notes_dir_exists {
+        if !is_first_launch && notes_dir_exists {
             app.load_notes_from_dir();
         }
 
         app
+    }
+
+    fn directory_has_notes(path: &PathBuf) -> bool {
+        if let Ok(entries) = fs::read_dir(path) {
+            for entry in entries.flatten() {
+                if let Some(ext) = entry.path().extension() {
+                    if ext == "md" {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
     }
 
     pub fn load_notes_from_dir(&mut self) {
@@ -175,7 +201,6 @@ impl<'a> App<'a> {
             let _ = fs::create_dir_all(&notes_path);
         }
 
-        // Load all .md files
         if let Ok(entries) = fs::read_dir(&notes_path) {
             let mut notes: Vec<Note> = entries
                 .filter_map(|entry| entry.ok())
@@ -201,16 +226,9 @@ impl<'a> App<'a> {
             self.notes = notes;
         }
 
-        // Create welcome note if no notes exist
-        if self.notes.is_empty() {
-            self.create_welcome_note();
-        }
-
-        // Reset selection
         self.selected_note = 0;
         self.list_state.select(Some(0));
 
-        // Update UI state
         self.update_outline();
         self.update_content_items();
     }
@@ -381,6 +399,8 @@ Press `q` to quit. Happy note-taking!"#.to_string();
         });
         self.selected_note = 0;
         self.list_state.select(Some(0));
+        self.update_outline();
+        self.update_content_items();
     }
 
     pub fn create_note(&mut self, name: &str) {
@@ -489,7 +509,7 @@ Press `q` to quit. Happy note-taking!"#.to_string();
 
     pub fn complete_onboarding(&mut self) {
         self.config.notes_dir = self.input_buffer.clone();
-        self.config.onboarding_complete = true;
+        // Save config (this creates the config file, marking onboarding as complete)
         let _ = self.config.save();
 
         // Create the notes directory
@@ -498,12 +518,32 @@ Press `q` to quit. Happy note-taking!"#.to_string();
 
         self.dialog = DialogState::None;
         self.load_notes_from_dir();
+
+        // Create welcome note only on first launch
+        if self.notes.is_empty() {
+            self.create_welcome_note();
+        }
+
         self.show_welcome = true;
+    }
+
+    /// Create the notes directory when it doesn't exist
+    pub fn create_notes_directory(&mut self) {
+        let notes_path = self.config.notes_path();
+        if fs::create_dir_all(&notes_path).is_ok() {
+            self.load_notes_from_dir();
+            // Show empty directory dialog since we just created an empty directory
+            if self.notes.is_empty() {
+                self.dialog = DialogState::EmptyDirectory;
+            } else {
+                self.dialog = DialogState::None;
+            }
+        }
     }
 
     pub fn dismiss_welcome(&mut self) {
         self.show_welcome = false;
-        self.config.welcome_shown = true;
+        self.config.welcome_shown = false; // Set to false so welcome won't show again
         let _ = self.config.save();
     }
 
@@ -752,7 +792,7 @@ Press `q` to quit. Happy note-taking!"#.to_string();
             self.textarea = TextArea::new(lines);
             self.vim_mode = VimMode::Normal;
             self.update_editor_block();
-            self.textarea.set_cursor_line_style(Style::default().bg(self.theme.surface0));
+            self.textarea.set_cursor_line_style(Style::default().bg(self.theme.bright_black));
             self.mode = Mode::Edit;
             self.focus = Focus::Content;
         }
@@ -767,7 +807,7 @@ Press `q` to quit. Happy note-taking!"#.to_string();
         let color = match self.vim_mode {
             VimMode::Normal => self.theme.blue,
             VimMode::Insert => self.theme.green,
-            VimMode::Visual => self.theme.mauve,
+            VimMode::Visual => self.theme.magenta,
         };
         let hint = match self.vim_mode {
             VimMode::Visual => "y: Yank, d: Delete, Esc: Cancel",
@@ -780,7 +820,11 @@ Press `q` to quit. Happy note-taking!"#.to_string();
                 .title(format!(" {} | {} ", mode_str, hint)),
         );
         // Set selection style for visual mode
-        self.textarea.set_selection_style(Style::default().bg(self.theme.surface2));
+        self.textarea.set_selection_style(
+            Style::default()
+                .fg(self.theme.selection_text)
+                .bg(self.theme.selection_bg)
+        );
     }
 
     pub fn save_edit(&mut self) {

@@ -26,13 +26,13 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     if let Some(search_area) = search_area {
         let search_block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.peach))
+            .border_style(Style::default().fg(theme.yellow))
             .title(" Search ");
 
         let search_text = Paragraph::new(Line::from(vec![
-            Span::styled("/", Style::default().fg(theme.overlay0)),
-            Span::styled(&app.search_query, Style::default().fg(theme.text)),
-            Span::styled("_", Style::default().fg(theme.peach)),
+            Span::styled("/", Style::default().fg(theme.white)),
+            Span::styled(&app.search_query, Style::default().fg(theme.foreground)),
+            Span::styled("_", Style::default().fg(theme.yellow)),
         ]))
         .block(search_block);
 
@@ -50,16 +50,16 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                     .fg(theme.yellow)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(theme.text)
+                Style::default().fg(theme.foreground)
             };
             ListItem::new(Line::from(Span::styled(&note.title, style)))
         })
         .collect();
 
     let border_style = if app.focus == Focus::Sidebar && app.mode == Mode::Normal {
-        Style::default().fg(theme.lavender)
+        Style::default().fg(theme.bright_blue)
     } else {
-        Style::default().fg(theme.surface1)
+        Style::default().fg(theme.bright_black)
     };
 
     let title = if app.search_active && !app.search_query.is_empty() {
@@ -77,7 +77,7 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         )
         .highlight_style(
             Style::default()
-                .bg(theme.surface0)
+                .bg(theme.bright_black)
                 .add_modifier(Modifier::BOLD),
         )
         .highlight_symbol("▶ ");

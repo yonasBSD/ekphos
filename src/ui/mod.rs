@@ -14,8 +14,9 @@ use crate::app::{App, DialogState, Mode};
 
 pub use content::render_content;
 pub use dialogs::{
-    render_create_note_dialog, render_delete_confirm_dialog, render_help_dialog,
-    render_onboarding_dialog, render_rename_note_dialog, render_welcome_dialog,
+    render_create_note_dialog, render_delete_confirm_dialog, render_directory_not_found_dialog,
+    render_empty_directory_dialog, render_help_dialog, render_onboarding_dialog,
+    render_rename_note_dialog, render_welcome_dialog,
 };
 pub use editor::render_editor;
 pub use outline::render_outline;
@@ -64,6 +65,8 @@ pub fn render(f: &mut Frame, app: &mut App) {
         DialogState::DeleteConfirm => render_delete_confirm_dialog(f, app),
         DialogState::RenameNote => render_rename_note_dialog(f, app),
         DialogState::Help => render_help_dialog(f, app),
+        DialogState::EmptyDirectory => render_empty_directory_dialog(f, app),
+        DialogState::DirectoryNotFound => render_directory_not_found_dialog(f, app),
         DialogState::None => {
             // Render welcome dialog on top if active
             if app.show_welcome {
