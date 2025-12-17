@@ -90,7 +90,7 @@ show_empty_dir = true
 | `theme`          | Theme name (without .toml extension)   | `catppuccin-mocha`   |
 | `show_empty_dir` | Show folders that contain no .md files | `true`               |
 
-> **Note:** This configuration format requires v0.3.0 or later. Earlier versions have a broken config system, please upgrade to v0.3.0 to enjoy proper configuration and theming support.
+> **Note:** This configuration format requires v0.3.0 or later. Earlier versions have a broken config system, please upgrade to latest version to enjoy proper configuration and theming support.
 
 ## Themes
 
