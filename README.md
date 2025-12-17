@@ -94,6 +94,8 @@ show_empty_dir = true
 
 ## Themes
 
+**EXPERIMENTAL**: Themes are still highly experimental and not well standardized. We expect to finalize the theme standard around v0.6.0 or v0.7.0
+
 Themes are stored in `~/.config/ekphos/themes/` and use the **Alacritty color scheme format**.
 
 ### Bundled Theme
