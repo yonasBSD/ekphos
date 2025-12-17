@@ -211,39 +211,55 @@ Notes are stored as `.md` files in your configured notes directory.
 4. Press `Ctrl+s` to save
 5. Press `Esc` to exit edit mode
 
-### Vim Keybindings (Edit Mode)
+### Vim Keybindings (Edit Mode - Normal)
 
 | Key       | Action                  |
 | --------- | ----------------------- |
-| `i`       | Insert mode             |
+| `i`       | Insert before cursor    |
 | `a`       | Insert after cursor     |
 | `A`       | Insert at end of line   |
 | `I`       | Insert at start of line |
 | `o`       | New line below          |
 | `O`       | New line above          |
 | `v`       | Visual mode             |
+| `h/l`     | Move cursor left/right  |
 | `j/k`     | Move cursor up/down     |
-| `h/l/w/b` | Move by word            |
+| `w/b`     | Move by word            |
 | `0/$`     | Line start/end          |
 | `g/G`     | Top/bottom of file      |
 | `x`       | Delete character        |
-| `d`       | Delete selection        |
+| `dd`      | Delete line             |
+| `dw`      | Delete word forward     |
+| `db`      | Delete word backward    |
 | `y`       | Yank (copy) selection   |
 | `p`       | Paste                   |
 | `u`       | Undo                    |
 | `Ctrl+r`  | Redo                    |
+| `Ctrl+s`  | Save and exit           |
+| `Esc`     | Exit (discard changes)  |
+
+### Delete Commands Flow
+
+Delete commands (`dd`, `dw`, `db`) use a confirmation flow with visual feedback:
+
+1. Press `d` - Title shows `NORMAL d-` with yellow border
+   - Available: `d` (line), `w` (word forward), `b` (word backward)
+2. Press target key - Text is highlighted, title shows `NORMAL [DEL]` with red border
+   - Press `d` to confirm deletion
+   - Press `Esc` to cancel
+   - Any other key cancels and performs its action
 
 ### Visual Mode
 
 Press `v` in normal mode to enter visual mode for text selection.
 
-| Key   | Action           |
-| ----- | ---------------- |
-| `h/l` | Extend selection |
-| `w/b` | Extend by word   |
-| `y`   | Yank selection   |
-| `d/x` | Delete selection |
-| `Esc` | Cancel           |
+| Key     | Action           |
+| ------- | ---------------- |
+| `h/j/k/l` | Extend selection |
+| `w/b`   | Extend by word   |
+| `y`     | Yank selection   |
+| `d/x`   | Delete selection |
+| `Esc`   | Cancel           |
 
 ### Supported Markdown
 
@@ -294,20 +310,35 @@ The outline panel shows all headings in your note:
 
 ## Keyboard Shortcuts
 
-| Key      | Action                       |
-| -------- | ---------------------------- |
-| `j/k`    | Navigate up/down             |
-| `Tab`    | Switch focus                 |
-| `/`      | Search notes (in sidebar)    |
-| `n`      | New note                     |
-| `r`      | Rename note                  |
-| `d`      | Delete note                  |
-| `e`      | Edit mode                    |
-| `Esc`    | Exit edit mode / Cancel      |
-| `Ctrl+s` | Save                         |
-| `Enter`  | Open image / Jump to heading |
-| `?`      | Show help                    |
-| `q`      | Quit                         |
+### Global
+
+| Key         | Action                                    |
+| ----------- | ----------------------------------------- |
+| `j/k`       | Navigate up/down                          |
+| `Tab`       | Switch focus (Sidebar → Content → Outline)|
+| `Shift+Tab` | Switch focus (reverse)                    |
+| `Enter/o`   | Open image / Jump to heading              |
+| `?`         | Show help dialog                          |
+| `q`         | Quit                                      |
+
+### Sidebar
+
+| Key   | Action              |
+| ----- | ------------------- |
+| `n`   | Create new note     |
+| `r`   | Rename note         |
+| `d`   | Delete note         |
+| `e`   | Edit note           |
+| `/`   | Search notes        |
+
+### Edit Mode
+
+| Key      | Action                    |
+| -------- | ------------------------- |
+| `Ctrl+s` | Save and exit edit mode   |
+| `Esc`    | Exit (discard changes)    |
+
+See **Vim Keybindings** section above for full edit mode controls.
 
 ## Contributing
 

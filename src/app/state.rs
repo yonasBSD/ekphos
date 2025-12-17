@@ -95,6 +95,16 @@ pub struct App<'a> {
     pub search_active: bool,
     pub search_query: String,
     pub filtered_indices: Vec<usize>,
+    pub editor_scroll_top: usize,
+    pub editor_view_height: usize,
+    pub pending_operator: Option<char>,
+    pub pending_delete: Option<DeleteType>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum DeleteType {
+    Word,
+    Line,
 }
 
 impl<'a> App<'a> {
@@ -120,7 +130,13 @@ impl<'a> App<'a> {
                 .border_style(Style::default().fg(theme.blue))
                 .title(" NORMAL | Ctrl+S: Save, Esc: Exit "),
         );
-        textarea.set_cursor_line_style(Style::default().bg(theme.bright_black));
+        // No line highlighting in normal mode - only word highlighting via selection
+        textarea.set_cursor_line_style(Style::default());
+        textarea.set_selection_style(
+            Style::default()
+                .fg(theme.selection_text)
+                .bg(theme.selection_bg)
+        );
 
         // Initialize image picker for terminal graphics
         let picker = Picker::from_query_stdio().ok();
@@ -170,6 +186,10 @@ impl<'a> App<'a> {
             search_active: false,
             search_query: String::new(),
             filtered_indices: Vec::new(),
+            editor_scroll_top: 0,
+            editor_view_height: 0,
+            pending_operator: None,
+            pending_delete: None,
         };
 
         if !is_first_launch && notes_dir_exists {
@@ -791,10 +811,22 @@ Press `q` to quit. Happy note-taking!"#.to_string();
             let lines: Vec<String> = note.content.lines().map(String::from).collect();
             self.textarea = TextArea::new(lines);
             self.vim_mode = VimMode::Normal;
+            self.editor_scroll_top = 0;
             self.update_editor_block();
-            self.textarea.set_cursor_line_style(Style::default().bg(self.theme.bright_black));
             self.mode = Mode::Edit;
             self.focus = Focus::Content;
+        }
+    }
+
+    pub fn update_editor_scroll(&mut self, view_height: usize) {
+        self.editor_view_height = view_height;
+        let (cursor_row, _) = self.textarea.cursor();
+
+        if cursor_row < self.editor_scroll_top {
+            self.editor_scroll_top = cursor_row;
+        }
+        else if cursor_row >= self.editor_scroll_top + view_height {
+            self.editor_scroll_top = cursor_row - view_height + 1;
         }
     }
 
@@ -804,27 +836,40 @@ Press `q` to quit. Happy note-taking!"#.to_string();
             VimMode::Insert => "INSERT",
             VimMode::Visual => "VISUAL",
         };
-        let color = match self.vim_mode {
-            VimMode::Normal => self.theme.blue,
-            VimMode::Insert => self.theme.green,
-            VimMode::Visual => self.theme.magenta,
+        let pending_str = match (&self.pending_delete, self.pending_operator) {
+            (Some(_), _) => " [DEL]",
+            (None, Some('d')) => " d-",
+            _ => "",
         };
-        let hint = match self.vim_mode {
-            VimMode::Visual => "y: Yank, d: Delete, Esc: Cancel",
+        let color = match (&self.pending_delete, self.vim_mode) {
+            (Some(_), _) => self.theme.red,
+            (None, VimMode::Normal) if self.pending_operator.is_some() => self.theme.yellow,
+            (None, VimMode::Normal) => self.theme.blue,
+            (None, VimMode::Insert) => self.theme.green,
+            (None, VimMode::Visual) => self.theme.magenta,
+        };
+        let hint = match (&self.pending_delete, self.vim_mode) {
+            (Some(_), _) => "d: Confirm, Esc: Cancel",
+            (None, VimMode::Visual) => "y: Yank, d: Delete, Esc: Cancel",
+            (None, _) if self.pending_operator == Some('d') => "d: Line, w: Word→, b: Word←",
             _ => "Ctrl+S: Save, Esc: Exit",
         };
         self.textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(color))
-                .title(format!(" {} | {} ", mode_str, hint)),
+                .title(format!(" {}{} | {} ", mode_str, pending_str, hint)),
         );
-        // Set selection style for visual mode
         self.textarea.set_selection_style(
             Style::default()
                 .fg(self.theme.selection_text)
                 .bg(self.theme.selection_bg)
         );
+        if self.vim_mode == VimMode::Visual {
+            self.textarea.set_cursor_line_style(Style::default().bg(self.theme.bright_black));
+        } else {
+            self.textarea.set_cursor_line_style(Style::default());
+        }
     }
 
     pub fn save_edit(&mut self) {
@@ -842,11 +887,6 @@ Press `q` to quit. Happy note-taking!"#.to_string();
 
     pub fn cancel_edit(&mut self) {
         self.mode = Mode::Normal;
-    }
-
-    pub fn highlight_current_word(&mut self) {
-        self.textarea.cancel_selection();
-        self.textarea.start_selection();
     }
 }
 

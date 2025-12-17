@@ -378,8 +378,8 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
     let theme = &app.theme;
 
     // Calculate centered dialog area
-    let dialog_width = 56.min(area.width.saturating_sub(4));
-    let dialog_height = 30.min(area.height.saturating_sub(2));
+    let dialog_width = 62.min(area.width.saturating_sub(4));
+    let dialog_height = 42.min(area.height.saturating_sub(2));
 
     let dialog_area = Rect {
         x: (area.width.saturating_sub(dialog_width)) / 2,
@@ -397,84 +397,130 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
 
     let content = vec![
         Line::from(""),
-        Line::from(Span::styled("  Navigation", header_style)),
+        Line::from(Span::styled("  Global", header_style)),
         Line::from(vec![
-            Span::styled("  j/k      ", key_style),
+            Span::styled("  j/k        ", key_style),
             Span::styled("Navigate up/down", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("  Tab      ", key_style),
-            Span::styled("Switch focus (Sidebar/Content/Outline)", desc_style),
+            Span::styled("  Tab        ", key_style),
+            Span::styled("Switch focus (Sidebar → Content → Outline)", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("  Enter    ", key_style),
+            Span::styled("  Shift+Tab  ", key_style),
+            Span::styled("Switch focus (reverse)", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter/o    ", key_style),
             Span::styled("Open image / Jump to heading", desc_style),
         ]),
-        Line::from(""),
-        Line::from(Span::styled("  Notes", header_style)),
         Line::from(vec![
-            Span::styled("  n        ", key_style),
-            Span::styled("New note", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  r        ", key_style),
-            Span::styled("Rename note", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  d        ", key_style),
-            Span::styled("Delete note", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  e        ", key_style),
-            Span::styled("Edit note", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  /        ", key_style),
-            Span::styled("Search notes", desc_style),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("  Edit Mode (Vim)", header_style)),
-        Line::from(vec![
-            Span::styled("  i/a/A/I  ", key_style),
-            Span::styled("Insert mode", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  v        ", key_style),
-            Span::styled("Visual mode (select text)", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  y/p      ", key_style),
-            Span::styled("Yank (copy) / Paste", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  d/x      ", key_style),
-            Span::styled("Delete selection / character", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  u/Ctrl+r ", key_style),
-            Span::styled("Undo / Redo", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  Ctrl+s   ", key_style),
-            Span::styled("Save", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  Esc      ", key_style),
-            Span::styled("Exit edit mode", desc_style),
-        ]),
-        Line::from(""),
-        Line::from(Span::styled("  Other", header_style)),
-        Line::from(vec![
-            Span::styled("  ?        ", key_style),
+            Span::styled("  ?          ", key_style),
             Span::styled("Show this help", desc_style),
         ]),
         Line::from(vec![
-            Span::styled("  q        ", key_style),
+            Span::styled("  q          ", key_style),
             Span::styled("Quit", desc_style),
         ]),
         Line::from(""),
+        Line::from(Span::styled("  Sidebar (Notes)", header_style)),
+        Line::from(vec![
+            Span::styled("  n          ", key_style),
+            Span::styled("Create new note", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  r          ", key_style),
+            Span::styled("Rename note", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  d          ", key_style),
+            Span::styled("Delete note", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  e          ", key_style),
+            Span::styled("Edit note", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  /          ", key_style),
+            Span::styled("Search notes", desc_style),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled("  Edit Mode - Normal", header_style)),
+        Line::from(vec![
+            Span::styled("  i          ", key_style),
+            Span::styled("Insert before cursor", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  a          ", key_style),
+            Span::styled("Insert after cursor", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  I/A        ", key_style),
+            Span::styled("Insert at line start/end", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  o/O        ", key_style),
+            Span::styled("New line below/above", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  h/l        ", key_style),
+            Span::styled("Move cursor left/right", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  w/b        ", key_style),
+            Span::styled("Move by word forward/backward", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  0/$        ", key_style),
+            Span::styled("Move to line start/end", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  g/G        ", key_style),
+            Span::styled("Move to file top/bottom", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  v          ", key_style),
+            Span::styled("Enter visual mode (select text)", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  x          ", key_style),
+            Span::styled("Delete character", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  dd         ", key_style),
+            Span::styled("Delete line (d → d → d to confirm)", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  dw         ", key_style),
+            Span::styled("Delete word forward (d → w → d)", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  db         ", key_style),
+            Span::styled("Delete word backward (d → b → d)", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  y/p        ", key_style),
+            Span::styled("Yank (copy) / Paste", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  u          ", key_style),
+            Span::styled("Undo", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+r     ", key_style),
+            Span::styled("Redo", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl+s     ", key_style),
+            Span::styled("Save and exit edit mode", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc        ", key_style),
+            Span::styled("Exit edit mode (discard changes)", desc_style),
+        ]),
+        Line::from(""),
         Line::from(Span::styled(
-            "Press Esc or ? to close",
+            "  Press Esc or ? to close",
             Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
         )),
     ];
@@ -482,7 +528,7 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
     let dialog = Paragraph::new(content)
         .block(
             Block::default()
-                .title(" Help ")
+                .title(" Help - Keybindings ")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(theme.bright_blue))
                 .style(Style::default().bg(theme.background)),

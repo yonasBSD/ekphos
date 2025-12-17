@@ -36,8 +36,8 @@ foreground = "#1e1e2e"
 background = "#a6adc8"
 
 [colors.selection]
-text = "#1e1e2e"
-background = "#f5e0dc"
+text = "#cdd6f4"
+background = "#585b70"
 
 [colors.normal]
 black = "#45475a"

@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEv
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_textarea::Input;
 
-use crate::app::{App, DialogState, Focus, Mode, VimMode};
+use crate::app::{App, DeleteType, DialogState, Focus, Mode, VimMode};
 use crate::ui;
 
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
@@ -360,6 +360,34 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
 }
 
 fn handle_edit_mode(app: &mut App, key: crossterm::event::KeyEvent) {
+    // Handle pending delete confirmation
+    if let Some(delete_type) = app.pending_delete {
+        match key.code {
+            KeyCode::Char('d') => {
+                app.pending_delete = None;
+                app.textarea.cut();
+                if delete_type == DeleteType::Line {
+                    app.textarea.delete_newline();
+                }
+            }
+            KeyCode::Esc => {
+                app.pending_delete = None;
+                app.textarea.cancel_selection();
+            }
+            _ => {
+                app.pending_delete = None;
+                app.textarea.cancel_selection();
+                match app.vim_mode {
+                    VimMode::Normal => handle_vim_normal_mode(app, key),
+                    VimMode::Insert => handle_vim_insert_mode(app, key),
+                    VimMode::Visual => handle_vim_visual_mode(app, key),
+                }
+            }
+        }
+        app.update_editor_block();
+        return;
+    }
+
     match app.vim_mode {
         VimMode::Normal => handle_vim_normal_mode(app, key),
         VimMode::Insert => handle_vim_insert_mode(app, key),
@@ -371,31 +399,37 @@ fn handle_edit_mode(app: &mut App, key: crossterm::event::KeyEvent) {
 fn handle_vim_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) {
     match key.code {
         KeyCode::Char('i') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.vim_mode = VimMode::Insert;
         }
         KeyCode::Char('a') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.vim_mode = VimMode::Insert;
             app.textarea.move_cursor(tui_textarea::CursorMove::Forward);
         }
         KeyCode::Char('A') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.vim_mode = VimMode::Insert;
             app.textarea.move_cursor(tui_textarea::CursorMove::End);
         }
         KeyCode::Char('I') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.vim_mode = VimMode::Insert;
             app.textarea.move_cursor(tui_textarea::CursorMove::Head);
         }
         KeyCode::Char('o') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.vim_mode = VimMode::Insert;
             app.textarea.move_cursor(tui_textarea::CursorMove::End);
             app.textarea.insert_newline();
         }
         KeyCode::Char('O') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.vim_mode = VimMode::Insert;
             app.textarea.move_cursor(tui_textarea::CursorMove::Head);
@@ -403,79 +437,129 @@ fn handle_vim_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) {
             app.textarea.move_cursor(tui_textarea::CursorMove::Up);
         }
         KeyCode::Char('v') => {
+            app.pending_operator = None;
             app.vim_mode = VimMode::Visual;
             app.textarea.cancel_selection();
             app.textarea.start_selection();
         }
-        KeyCode::Char('h') | KeyCode::Left | KeyCode::Char('b') => {
-            // Start selection, then move - selection shows what will be affected
-            app.highlight_current_word();
-            app.textarea.move_cursor(tui_textarea::CursorMove::WordBack);
+        KeyCode::Char('h') | KeyCode::Left => {
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
+            app.textarea.move_cursor(tui_textarea::CursorMove::Back);
         }
         KeyCode::Char('j') | KeyCode::Down => {
-            app.highlight_current_word();
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
             app.textarea.move_cursor(tui_textarea::CursorMove::Down);
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            app.highlight_current_word();
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
             app.textarea.move_cursor(tui_textarea::CursorMove::Up);
         }
-        KeyCode::Char('l') | KeyCode::Right | KeyCode::Char('w') => {
-            // Start selection, then move - selection shows what will be affected
-            app.highlight_current_word();
-            app.textarea.move_cursor(tui_textarea::CursorMove::WordForward);
+        KeyCode::Char('l') | KeyCode::Right => {
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
+            app.textarea.move_cursor(tui_textarea::CursorMove::Forward);
+        }
+        KeyCode::Char('w') => {
+            if app.pending_operator == Some('d') {
+                // dw: delete word forward - highlight then delete on next key
+                app.pending_operator = None;
+                app.textarea.cancel_selection();
+                app.textarea.start_selection();
+                app.textarea.move_cursor(tui_textarea::CursorMove::WordForward);
+                app.pending_delete = Some(DeleteType::Word);
+            } else {
+                app.pending_operator = None;
+                app.textarea.move_cursor(tui_textarea::CursorMove::WordForward);
+            }
+        }
+        KeyCode::Char('b') => {
+            if app.pending_operator == Some('d') {
+                // db: delete word backward - highlight then delete on next key
+                app.pending_operator = None;
+                app.textarea.cancel_selection();
+                app.textarea.start_selection();
+                app.textarea.move_cursor(tui_textarea::CursorMove::WordBack);
+                app.pending_delete = Some(DeleteType::Word);
+            } else {
+                app.pending_operator = None;
+                app.textarea.move_cursor(tui_textarea::CursorMove::WordBack);
+            }
         }
         KeyCode::Char('0') => {
-            app.highlight_current_word();
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
             app.textarea.move_cursor(tui_textarea::CursorMove::Head);
         }
         KeyCode::Char('$') => {
-            app.highlight_current_word();
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
             app.textarea.move_cursor(tui_textarea::CursorMove::End);
         }
         KeyCode::Char('g') => {
-            app.highlight_current_word();
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
             app.textarea.move_cursor(tui_textarea::CursorMove::Top);
         }
         KeyCode::Char('G') => {
-            app.highlight_current_word();
+            app.pending_operator = None;
+            app.textarea.cancel_selection();
             app.textarea.move_cursor(tui_textarea::CursorMove::Bottom);
         }
         KeyCode::Char('x') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.textarea.delete_char();
         }
         KeyCode::Char('d') => {
-            // Delete the highlighted word (selection)
-            app.textarea.cut();
+            if app.pending_operator == Some('d') {
+                app.pending_operator = None;
+                app.textarea.cancel_selection();
+                app.textarea.move_cursor(tui_textarea::CursorMove::Head);
+                app.textarea.start_selection();
+                app.textarea.move_cursor(tui_textarea::CursorMove::End);
+                app.pending_delete = Some(DeleteType::Line);
+            } else {
+                app.pending_operator = Some('d');
+            }
         }
         KeyCode::Char('y') => {
+            app.pending_operator = None;
             // Yank current selection
             app.textarea.copy();
         }
         KeyCode::Char('p') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.textarea.paste();
         }
         KeyCode::Char('u') => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.textarea.undo();
         }
         KeyCode::Char('r') if key.modifiers == KeyModifiers::CONTROL => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.textarea.redo();
         }
         KeyCode::Esc => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.cancel_edit();
             app.vim_mode = VimMode::Normal;
         }
         KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
+            app.pending_operator = None;
             app.textarea.cancel_selection();
             app.save_edit();
             app.vim_mode = VimMode::Normal;
         }
-        _ => {}
+        _ => {
+            app.pending_operator = None;
+        }
     }
 }
 

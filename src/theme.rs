@@ -188,11 +188,11 @@ fn default_cursor() -> String {
 }
 
 fn default_selection_text() -> String {
-    "#1e1e2e".to_string()
+    "#cdd6f4".to_string() // Light foreground color
 }
 
 fn default_selection_bg() -> String {
-    "#f5e0dc".to_string()
+    "#585b70".to_string() // Subtle gray background (bright_black)
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -259,8 +259,8 @@ impl Default for ThemeColors {
                 cursor: "#f5e0dc".to_string(),
             },
             selection: SelectionColors {
-                text: "#1e1e2e".to_string(),
-                background: "#f5e0dc".to_string(),
+                text: "#cdd6f4".to_string(),
+                background: "#585b70".to_string(),
             },
             normal: TerminalColors {
                 black: "#45475a".to_string(),

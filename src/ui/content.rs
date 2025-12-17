@@ -39,17 +39,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
-    // Calculate visible range based on cursor position
-    let available_height = inner_area.height as usize;
     let cursor = app.content_cursor;
-
-    // Calculate scroll offset to keep cursor visible
-    let scroll_offset = if cursor >= available_height {
-        cursor - available_height + 1
-    } else {
-        0
-    };
-
     let available_width = inner_area.width.saturating_sub(4) as usize;
 
     // calculate wrapped text row height
@@ -63,6 +53,47 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         ((total_len as f64 / available_width as f64).ceil() as u16).max(1)
     };
 
+    // Helper to get item height
+    let get_item_height = |item: &ContentItem| -> u16 {
+        match item {
+            ContentItem::TextLine(line) => calc_wrapped_height(line, 4),
+            ContentItem::Image(_) => 8u16,
+            ContentItem::CodeLine(line) => calc_wrapped_height(line, 6),
+            ContentItem::CodeFence(_) => 1u16,
+        }
+    };
+
+    // Calculate scroll offset accounting for variable item heights
+    // We need to ensure the cursor line is visible
+    let mut scroll_offset = 0;
+    let mut cumulative_height = 0u16;
+
+    for (i, item) in app.content_items.iter().enumerate() {
+        let item_height = get_item_height(item);
+        if i <= cursor {
+            cumulative_height += item_height;
+        }
+        if i == cursor {
+            break;
+        }
+    }
+
+    // If cursor would be below visible area, find scroll offset
+    if cumulative_height > inner_area.height {
+        let mut height_so_far = 0u16;
+        for (i, item) in app.content_items.iter().enumerate() {
+            if i > cursor {
+                break;
+            }
+            let item_height = get_item_height(item);
+            height_so_far += item_height;
+            if cumulative_height - height_so_far <= inner_area.height {
+                scroll_offset = i + 1;
+                break;
+            }
+        }
+    }
+
     let mut constraints: Vec<Constraint> = Vec::new();
     let mut visible_indices: Vec<usize> = Vec::new();
     let mut total_height = 0u16;
@@ -71,12 +102,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         if total_height >= inner_area.height {
             break;
         }
-        let item_height = match item {
-            ContentItem::TextLine(line) => calc_wrapped_height(line, 4),
-            ContentItem::Image(_) => 8u16,
-            ContentItem::CodeLine(line) => calc_wrapped_height(line, 6),
-            ContentItem::CodeFence(_) => 1u16,
-        };
+        let item_height = get_item_height(item);
         constraints.push(Constraint::Length(item_height));
         visible_indices.push(i);
         total_height += item_height;
