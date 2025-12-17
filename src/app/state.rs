@@ -31,8 +31,12 @@ pub enum DialogState {
     None,
     Onboarding,
     CreateNote,
+    CreateFolder,
+    CreateNoteInFolder,
     DeleteConfirm,
+    DeleteFolderConfirm,
     RenameNote,
+    RenameFolder,
     Help,
     EmptyDirectory,
     DirectoryNotFound,
@@ -72,6 +76,34 @@ pub enum VimMode {
     Visual,
 }
 
+#[derive(Debug, Clone)]
+pub enum FileTreeItem {
+    Folder {
+        name: String,
+        path: PathBuf,
+        expanded: bool,
+        children: Vec<FileTreeItem>,
+        depth: usize,
+    },
+    Note {
+        note_index: usize,
+        depth: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct SidebarItem {
+    pub kind: SidebarItemKind,
+    pub depth: usize,
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone)]
+pub enum SidebarItemKind {
+    Folder { path: PathBuf, expanded: bool },
+    Note { note_index: usize },
+}
+
 pub struct App<'a> {
     pub notes: Vec<Note>,
     pub selected_note: usize,
@@ -99,6 +131,13 @@ pub struct App<'a> {
     pub editor_view_height: usize,
     pub pending_operator: Option<char>,
     pub pending_delete: Option<DeleteType>,
+    pub file_tree: Vec<FileTreeItem>,
+    pub sidebar_items: Vec<SidebarItem>,
+    pub selected_sidebar_index: usize,
+    pub folder_states: HashMap<PathBuf, bool>,
+    pub target_folder: Option<PathBuf>,
+    pub dialog_error: Option<String>,
+    pub search_matched_notes: Vec<usize>, 
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -190,6 +229,13 @@ impl<'a> App<'a> {
             editor_view_height: 0,
             pending_operator: None,
             pending_delete: None,
+            file_tree: Vec::new(),
+            sidebar_items: Vec::new(),
+            selected_sidebar_index: 0,
+            folder_states: HashMap::new(),
+            target_folder: None,
+            dialog_error: None,
+            search_matched_notes: Vec::new(),
         };
 
         if !is_first_launch && notes_dir_exists {
@@ -200,9 +246,24 @@ impl<'a> App<'a> {
     }
 
     fn directory_has_notes(path: &PathBuf) -> bool {
+        Self::directory_has_notes_recursive(path)
+    }
+
+    fn directory_has_notes_recursive(path: &PathBuf) -> bool {
         if let Ok(entries) = fs::read_dir(path) {
             for entry in entries.flatten() {
-                if let Some(ext) = entry.path().extension() {
+                let entry_path = entry.path();
+                if entry_path.is_dir() {
+                    if entry_path.file_name()
+                        .map(|n| n.to_string_lossy().starts_with('.'))
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    if Self::directory_has_notes_recursive(&entry_path) {
+                        return true;
+                    }
+                } else if let Some(ext) = entry_path.extension() {
                     if ext == "md" {
                         return true;
                     }
@@ -214,43 +275,186 @@ impl<'a> App<'a> {
 
     pub fn load_notes_from_dir(&mut self) {
         self.notes.clear();
+        self.file_tree.clear();
         let notes_path = self.config.notes_path();
 
-        // Create directory if it doesn't exist
         if !notes_path.exists() {
             let _ = fs::create_dir_all(&notes_path);
         }
 
-        if let Ok(entries) = fs::read_dir(&notes_path) {
-            let mut notes: Vec<Note> = entries
-                .filter_map(|entry| entry.ok())
-                .filter(|entry| {
-                    entry.path().extension()
-                        .map(|ext| ext == "md")
-                        .unwrap_or(false)
-                })
-                .filter_map(|entry| {
-                    let path = entry.path();
-                    let content = fs::read_to_string(&path).ok()?;
-                    let title = path.file_stem()?.to_string_lossy().to_string();
-                    Some(Note {
-                        title,
-                        content,
-                        file_path: Some(path),
-                    })
-                })
-                .collect();
+        self.file_tree = self.build_tree(&notes_path, 0);
 
-            // Sort by title
-            notes.sort_by(|a, b| a.title.cmp(&b.title));
-            self.notes = notes;
-        }
+        self.sort_tree();
 
-        self.selected_note = 0;
-        self.list_state.select(Some(0));
+        self.rebuild_sidebar_items();
+
+        self.selected_sidebar_index = 0;
+        self.sync_selected_note_from_sidebar();
 
         self.update_outline();
         self.update_content_items();
+    }
+
+    fn build_tree(&mut self, dir: &PathBuf, depth: usize) -> Vec<FileTreeItem> {
+        let mut items = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+
+                if path.is_dir() {
+                    if path.file_name()
+                        .map(|n| n.to_string_lossy().starts_with('.'))
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
+
+                    let children = self.build_tree(&path, depth + 1);
+
+                    if self.config.show_empty_dir || Self::tree_has_notes(&children) {
+                        let name = path.file_name()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+
+                        let expanded = self.folder_states
+                            .get(&path)
+                            .copied()
+                            .unwrap_or(false);
+
+                        items.push(FileTreeItem::Folder {
+                            name,
+                            path,
+                            expanded,
+                            children,
+                            depth,
+                        });
+                    }
+                } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+                    if let Ok(content) = fs::read_to_string(&path) {
+                        let title = path.file_stem()
+                            .map(|n| n.to_string_lossy().to_string())
+                            .unwrap_or_default();
+
+                        let note_index = self.notes.len();
+                        self.notes.push(Note {
+                            title,
+                            content,
+                            file_path: Some(path),
+                        });
+
+                        items.push(FileTreeItem::Note {
+                            note_index,
+                            depth,
+                        });
+                    }
+                }
+            }
+        }
+
+        items
+    }
+
+    fn tree_has_notes(items: &[FileTreeItem]) -> bool {
+        items.iter().any(|item| match item {
+            FileTreeItem::Note { .. } => true,
+            FileTreeItem::Folder { children, .. } => Self::tree_has_notes(children),
+        })
+    }
+
+    fn sort_tree(&mut self) {
+        Self::sort_tree_items(&mut self.file_tree, &self.notes);
+    }
+
+    fn sort_tree_items(items: &mut [FileTreeItem], notes: &[Note]) {
+        items.sort_by(|a, b| {
+            let name_a = Self::get_tree_item_name(a, notes);
+            let name_b = Self::get_tree_item_name(b, notes);
+            name_a.to_lowercase().cmp(&name_b.to_lowercase())
+        });
+
+        for item in items.iter_mut() {
+            if let FileTreeItem::Folder { children, .. } = item {
+                Self::sort_tree_items(children, notes);
+            }
+        }
+    }
+
+    fn get_tree_item_name<'b>(item: &'b FileTreeItem, notes: &'b [Note]) -> &'b str {
+        match item {
+            FileTreeItem::Folder { name, .. } => name,
+            FileTreeItem::Note { note_index, .. } => &notes[*note_index].title,
+        }
+    }
+
+    pub fn rebuild_sidebar_items(&mut self) {
+        self.sidebar_items.clear();
+
+        // Add root folder first
+        let notes_path = self.config.notes_path();
+        let root_name = notes_path
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "Notes".to_string());
+
+        let root_expanded = self.folder_states
+            .get(&notes_path)
+            .copied()
+            .unwrap_or(true); // Root expanded by default
+
+        self.sidebar_items.push(SidebarItem {
+            kind: SidebarItemKind::Folder {
+                path: notes_path,
+                expanded: root_expanded,
+            },
+            depth: 0,
+            display_name: root_name,
+        });
+
+        // Only add children if root is expanded
+        if root_expanded {
+            let tree_clone = self.file_tree.clone();
+            self.flatten_tree_into_sidebar(&tree_clone, 1); // Start at depth 1
+        }
+    }
+
+    fn flatten_tree_into_sidebar(&mut self, items: &[FileTreeItem], depth_offset: usize) {
+        for item in items {
+            match item {
+                FileTreeItem::Folder { name, path, expanded, children, depth } => {
+                    self.sidebar_items.push(SidebarItem {
+                        kind: SidebarItemKind::Folder {
+                            path: path.clone(),
+                            expanded: *expanded,
+                        },
+                        depth: *depth + depth_offset,
+                        display_name: name.clone(),
+                    });
+
+                    if *expanded {
+                        self.flatten_tree_into_sidebar(children, depth_offset);
+                    }
+                }
+                FileTreeItem::Note { note_index, depth } => {
+                    self.sidebar_items.push(SidebarItem {
+                        kind: SidebarItemKind::Note {
+                            note_index: *note_index,
+                        },
+                        depth: *depth + depth_offset,
+                        display_name: self.notes[*note_index].title.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    pub fn sync_selected_note_from_sidebar(&mut self) {
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            if let SidebarItemKind::Note { note_index } = &item.kind {
+                self.selected_note = *note_index;
+                self.current_image = None;
+            }
+        }
     }
 
     fn create_welcome_note(&mut self) {
@@ -429,8 +633,9 @@ Press `q` to quit. Happy note-taking!"#.to_string();
             return;
         }
 
-        let notes_path = self.config.notes_path();
-        let file_path = notes_path.join(format!("{}.md", name));
+        let parent_path = self.target_folder.clone()
+            .unwrap_or_else(|| self.config.notes_path());
+        let file_path = parent_path.join(format!("{}.md", name));
 
         // Don't overwrite existing files
         if file_path.exists() {
@@ -439,49 +644,127 @@ Press `q` to quit. Happy note-taking!"#.to_string();
 
         let content = format!("# {}\n\n", name);
         if fs::write(&file_path, &content).is_ok() {
-            self.notes.push(Note {
-                title: name.to_string(),
-                content,
-                file_path: Some(file_path),
-            });
-            self.notes.sort_by(|a, b| a.title.cmp(&b.title));
+            if let Some(ref folder_path) = self.target_folder {
+                self.folder_states.insert(folder_path.clone(), true);
+            }
 
-            // Select the new note
-            if let Some(idx) = self.notes.iter().position(|n| n.title == name) {
-                self.selected_note = idx;
-                self.list_state.select(Some(idx));
+            self.load_notes_from_dir();
+
+            let name_owned = name.to_string();
+            for (idx, item) in self.sidebar_items.iter().enumerate() {
+                if let SidebarItemKind::Note { note_index } = &item.kind {
+                    if self.notes[*note_index].title == name_owned {
+                        self.selected_sidebar_index = idx;
+                        self.selected_note = *note_index;
+                        break;
+                    }
+                }
             }
 
             self.update_outline();
             self.update_content_items();
         }
+
+        self.target_folder = None;
+    }
+
+    pub fn create_folder(&mut self, name: &str) -> bool {
+        let name = name.trim();
+        if name.is_empty() {
+            return false;
+        }
+
+        let parent_path = self.target_folder.clone()
+            .unwrap_or_else(|| self.config.notes_path());
+        let folder_path = parent_path.join(name);
+
+        if folder_path.exists() {
+            self.dialog_error = Some(format!("Folder '{}' already exists", name));
+            return false;
+        }
+
+        if fs::create_dir(&folder_path).is_ok() {
+            self.target_folder = Some(folder_path);
+            self.dialog_error = None;
+            true
+        } else {
+            self.dialog_error = Some("Failed to create folder".to_string());
+            false
+        }
+    }
+
+    pub fn get_current_context_folder(&self) -> Option<PathBuf> {
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            match &item.kind {
+                SidebarItemKind::Folder { path, .. } => Some(path.clone()),
+                SidebarItemKind::Note { note_index } => {
+                    if let Some(note) = self.notes.get(*note_index) {
+                        if let Some(ref file_path) = note.file_path {
+                            return file_path.parent().map(|p| p.to_path_buf());
+                        }
+                    }
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    }
+
+    pub fn get_selected_folder_path(&self) -> Option<PathBuf> {
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            if let SidebarItemKind::Folder { path, .. } = &item.kind {
+                return Some(path.clone());
+            }
+        }
+        None
+    }
+
+    pub fn get_selected_folder_name(&self) -> Option<String> {
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            if let SidebarItemKind::Folder { .. } = &item.kind {
+                return Some(item.display_name.clone());
+            }
+        }
+        None
     }
 
     pub fn delete_current_note(&mut self) {
-        if self.notes.is_empty() {
-            return;
-        }
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            if let SidebarItemKind::Note { note_index } = &item.kind {
+                if let Some(ref path) = self.notes[*note_index].file_path {
+                    let _ = fs::remove_file(path);
+                }
 
-        if let Some(note) = self.notes.get(self.selected_note) {
-            if let Some(ref path) = note.file_path {
-                let _ = fs::remove_file(path);
+                self.load_notes_from_dir();
+
+                if self.selected_sidebar_index >= self.sidebar_items.len() {
+                    self.selected_sidebar_index = self.sidebar_items.len().saturating_sub(1);
+                }
+                self.sync_selected_note_from_sidebar();
+
+                self.update_outline();
+                self.update_content_items();
             }
         }
+    }
 
-        self.notes.remove(self.selected_note);
+    pub fn delete_current_folder(&mut self) {
+        if let Some(path) = self.get_selected_folder_path() {
+            if fs::remove_dir_all(&path).is_ok() {
+                self.folder_states.remove(&path);
 
-        // Adjust selection
-        if self.selected_note >= self.notes.len() && !self.notes.is_empty() {
-            self.selected_note = self.notes.len() - 1;
+                self.load_notes_from_dir();
+
+                if self.selected_sidebar_index >= self.sidebar_items.len() {
+                    self.selected_sidebar_index = self.sidebar_items.len().saturating_sub(1);
+                }
+                self.sync_selected_note_from_sidebar();
+
+                self.update_outline();
+                self.update_content_items();
+            }
         }
-        self.list_state.select(if self.notes.is_empty() {
-            None
-        } else {
-            Some(self.selected_note)
-        });
-
-        self.update_outline();
-        self.update_content_items();
     }
 
     pub fn rename_note(&mut self, new_name: &str) {
@@ -490,41 +773,102 @@ Press `q` to quit. Happy note-taking!"#.to_string();
             return;
         }
 
-        if self.notes.is_empty() {
-            return;
-        }
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            if let SidebarItemKind::Note { note_index } = &item.kind {
+                let note_index = *note_index;
 
-        let notes_path = self.config.notes_path();
-        let new_file_path = notes_path.join(format!("{}.md", new_name));
+                if self.notes[note_index].title == new_name {
+                    return;
+                }
 
-        if let Some(note) = self.notes.get(self.selected_note) {
-            if note.title == new_name {
-                return;
-            }
-            if new_file_path.exists() {
-                return;
-            }
-        }
+                let new_file_path = if let Some(ref old_path) = self.notes[note_index].file_path {
+                    if let Some(parent) = old_path.parent() {
+                        parent.join(format!("{}.md", new_name))
+                    } else {
+                        return;
+                    }
+                } else {
+                    return;
+                };
 
-        if let Some(note) = self.notes.get_mut(self.selected_note) {
-            if let Some(ref old_path) = note.file_path {
-                if fs::rename(old_path, &new_file_path).is_ok() {
-                    note.title = new_name.to_string();
-                    note.file_path = Some(new_file_path);
+                if new_file_path.exists() {
+                    return;
+                }
+
+                if let Some(ref old_path) = self.notes[note_index].file_path {
+                    if fs::rename(old_path, &new_file_path).is_ok() {
+                        self.load_notes_from_dir();
+
+                        let new_name_owned = new_name.to_string();
+                        for (idx, item) in self.sidebar_items.iter().enumerate() {
+                            if let SidebarItemKind::Note { note_index } = &item.kind {
+                                if self.notes[*note_index].title == new_name_owned {
+                                    self.selected_sidebar_index = idx;
+                                    self.selected_note = *note_index;
+                                    break;
+                                }
+                            }
+                        }
+
+                        self.update_outline();
+                        self.update_content_items();
+                    }
                 }
             }
         }
+    }
 
-        let new_name_owned = new_name.to_string();
-        self.notes.sort_by(|a, b| a.title.cmp(&b.title));
-
-        if let Some(idx) = self.notes.iter().position(|n| n.title == new_name_owned) {
-            self.selected_note = idx;
-            self.list_state.select(Some(idx));
+    pub fn rename_folder(&mut self, new_name: &str) {
+        let new_name = new_name.trim();
+        if new_name.is_empty() {
+            return;
         }
 
-        self.update_outline();
-        self.update_content_items();
+        if let Some(old_path) = self.get_selected_folder_path() {
+            let old_name = old_path.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            if old_name == new_name {
+                return;
+            }
+
+            if let Some(parent) = old_path.parent() {
+                let new_path = parent.join(new_name);
+
+                if new_path.exists() {
+                    self.dialog_error = Some(format!("Folder '{}' already exists", new_name));
+                    return;
+                }
+
+                if fs::rename(&old_path, &new_path).is_ok() {
+                    if let Some(expanded) = self.folder_states.remove(&old_path) {
+                        self.folder_states.insert(new_path.clone(), expanded);
+                    }
+
+                    self.load_notes_from_dir();
+
+                    let new_name_owned = new_name.to_string();
+                    for (idx, item) in self.sidebar_items.iter().enumerate() {
+                        if let SidebarItemKind::Folder { path, .. } = &item.kind {
+                            if path == &new_path {
+                                self.selected_sidebar_index = idx;
+                                break;
+                            }
+                        }
+                        if item.display_name == new_name_owned {
+                            if let SidebarItemKind::Folder { .. } = &item.kind {
+                                self.selected_sidebar_index = idx;
+                                break;
+                            }
+                        }
+                    }
+
+                    self.update_outline();
+                    self.update_content_items();
+                }
+            }
+        }
     }
 
     pub fn complete_onboarding(&mut self) {
@@ -694,30 +1038,67 @@ Press `q` to quit. Happy note-taking!"#.to_string();
         }
     }
 
-    pub fn next_note(&mut self) {
-        if self.notes.is_empty() {
+    pub fn next_sidebar_item(&mut self) {
+        if self.sidebar_items.is_empty() {
             return;
         }
-        self.selected_note = (self.selected_note + 1) % self.notes.len();
-        self.list_state.select(Some(self.selected_note));
-        self.current_image = None;
+        self.selected_sidebar_index = (self.selected_sidebar_index + 1) % self.sidebar_items.len();
+        self.sync_selected_note_from_sidebar();
         self.update_outline();
         self.update_content_items();
     }
 
-    pub fn previous_note(&mut self) {
-        if self.notes.is_empty() {
+    pub fn previous_sidebar_item(&mut self) {
+        if self.sidebar_items.is_empty() {
             return;
         }
-        self.selected_note = if self.selected_note == 0 {
-            self.notes.len() - 1
+        self.selected_sidebar_index = if self.selected_sidebar_index == 0 {
+            self.sidebar_items.len() - 1
         } else {
-            self.selected_note - 1
+            self.selected_sidebar_index - 1
         };
-        self.list_state.select(Some(self.selected_note));
-        self.current_image = None;
+        self.sync_selected_note_from_sidebar();
         self.update_outline();
         self.update_content_items();
+    }
+
+    pub fn handle_sidebar_enter(&mut self) {
+        if let Some(item) = self.sidebar_items.get(self.selected_sidebar_index) {
+            match &item.kind {
+                SidebarItemKind::Folder { path, .. } => {
+                    self.toggle_folder(path.clone());
+                }
+                SidebarItemKind::Note { .. } => {
+                }
+            }
+        }
+    }
+
+    pub fn toggle_folder(&mut self, path: PathBuf) {
+        let new_state = !self.folder_states.get(&path).copied().unwrap_or(false);
+        self.folder_states.insert(path.clone(), new_state);
+
+        Self::update_folder_in_tree(&mut self.file_tree, &path, new_state);
+
+        self.rebuild_sidebar_items();
+
+        if self.selected_sidebar_index >= self.sidebar_items.len() {
+            self.selected_sidebar_index = self.sidebar_items.len().saturating_sub(1);
+        }
+
+        self.sync_selected_note_from_sidebar();
+    }
+
+    fn update_folder_in_tree(items: &mut [FileTreeItem], target_path: &PathBuf, new_state: bool) {
+        for item in items {
+            if let FileTreeItem::Folder { path, expanded, children, .. } = item {
+                if path == target_path {
+                    *expanded = new_state;
+                    return;
+                }
+                Self::update_folder_in_tree(children, target_path, new_state);
+            }
+        }
     }
 
     pub fn toggle_focus(&mut self, backwards: bool) {
@@ -730,33 +1111,84 @@ Press `q` to quit. Happy note-taking!"#.to_string();
 
     pub fn update_filtered_indices(&mut self) {
         if self.search_query.is_empty() {
+            self.search_matched_notes.clear();
             self.filtered_indices.clear();
             return;
         }
+
         let query = self.search_query.to_lowercase();
-        self.filtered_indices = self
-            .notes
+
+        self.search_matched_notes = self.notes
             .iter()
             .enumerate()
             .filter(|(_, note)| note.title.to_lowercase().contains(&query))
             .map(|(i, _)| i)
             .collect();
+
+        for &note_index in &self.search_matched_notes {
+            if let Some(note) = self.notes.get(note_index) {
+                if let Some(ref file_path) = note.file_path {
+                    let notes_root = self.config.notes_path();
+                    let mut current = file_path.parent();
+                    while let Some(parent) = current {
+                        if parent == notes_root {
+                            break;
+                        }
+                        self.folder_states.insert(parent.to_path_buf(), true);
+                        current = parent.parent();
+                    }
+                }
+            }
+        }
+
+        Self::update_tree_expanded_states(&mut self.file_tree, &self.folder_states);
+
+        self.rebuild_sidebar_items();
+
+        self.filtered_indices = self.sidebar_items
+            .iter()
+            .enumerate()
+            .filter(|(_, item)| {
+                if let SidebarItemKind::Note { note_index } = &item.kind {
+                    self.search_matched_notes.contains(note_index)
+                } else {
+                    false
+                }
+            })
+            .map(|(i, _)| i)
+            .collect();
+
+        if !self.filtered_indices.is_empty() {
+            self.selected_sidebar_index = self.filtered_indices[0];
+            self.sync_selected_note_from_sidebar();
+            self.update_outline();
+            self.update_content_items();
+        }
+    }
+
+    fn update_tree_expanded_states(items: &mut [FileTreeItem], folder_states: &HashMap<PathBuf, bool>) {
+        for item in items {
+            if let FileTreeItem::Folder { path, expanded, children, .. } = item {
+                if let Some(&state) = folder_states.get(path) {
+                    *expanded = state;
+                }
+                Self::update_tree_expanded_states(children, folder_states);
+            }
+        }
     }
 
     pub fn clear_search(&mut self) {
         self.search_active = false;
         self.search_query.clear();
         self.filtered_indices.clear();
+        self.search_matched_notes.clear();
     }
 
-    pub fn get_visible_notes(&self) -> Vec<(usize, &Note)> {
+    pub fn get_visible_sidebar_indices(&self) -> Vec<usize> {
         if self.search_active && !self.search_query.is_empty() {
-            self.filtered_indices
-                .iter()
-                .filter_map(|&i| self.notes.get(i).map(|n| (i, n)))
-                .collect()
+            self.filtered_indices.clone()
         } else {
-            self.notes.iter().enumerate().collect()
+            (0..self.sidebar_items.len()).collect()
         }
     }
 

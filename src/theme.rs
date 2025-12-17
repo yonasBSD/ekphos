@@ -13,6 +13,8 @@ pub struct Config {
     pub welcome_shown: bool,
     #[serde(default = "default_theme_name")]
     pub theme: String,
+    #[serde(default = "default_show_empty_dir")]
+    pub show_empty_dir: bool,
 }
 
 fn default_notes_dir() -> String {
@@ -20,6 +22,10 @@ fn default_notes_dir() -> String {
 }
 
 fn default_welcome_shown() -> bool {
+    true 
+}
+
+fn default_show_empty_dir() -> bool {
     true 
 }
 
@@ -33,6 +39,7 @@ impl Default for Config {
             notes_dir: default_notes_dir(),
             welcome_shown: default_welcome_shown(),
             theme: default_theme_name(),
+            show_empty_dir: default_show_empty_dir()
         }
     }
 }

@@ -80,13 +80,15 @@ Configuration is stored in `~/.config/ekphos/config.toml`.
 notes_dir = "~/Documents/ekphos"
 welcome_shown = false
 theme = "catppuccin-mocha"
+show_empty_dir = true
 ```
 
-| Setting         | Description                          | Default              |
-| --------------- | ------------------------------------ | -------------------- |
-| `notes_dir`     | Directory where notes are stored     | `~/Documents/ekphos` |
-| `welcome_shown` | Show welcome dialog on startup       | `true`               |
-| `theme`         | Theme name (without .toml extension) | `catppuccin-mocha`   |
+| Setting          | Description                            | Default              |
+| ---------------- | -------------------------------------- | -------------------- |
+| `notes_dir`      | Directory where notes are stored       | `~/Documents/ekphos` |
+| `welcome_shown`  | Show welcome dialog on startup         | `true`               |
+| `theme`          | Theme name (without .toml extension)   | `catppuccin-mocha`   |
+| `show_empty_dir` | Show folders that contain no .md files | `true`               |
 
 > **Note:** This configuration format requires v0.3.0 or later. Earlier versions have a broken config system, please upgrade to v0.3.0 to enjoy proper configuration and theming support.
 
@@ -176,11 +178,20 @@ Ekphos is fully compatible with [Alacritty Themes](https://github.com/alacritty/
 
 Ekphos has three panels:
 
-- **Sidebar** (left): List of notes
+- **Sidebar** (left): Collapsible folder tree with notes
 - **Content** (center): Note content with markdown rendering
 - **Outline** (right): Auto-generated headings for quick navigation
 
 Use `Tab` or `Shift+Tab` to switch between panels.
+
+### Folder Tree
+
+The sidebar displays a hierarchical folder tree that automatically detects subdirectories containing `.md` files:
+
+- Folders are shown with `▶` (collapsed) or `▼` (expanded) icons
+- Press `Enter` on a folder to toggle expand/collapse
+- Folders and notes are sorted alphabetically together
+- Folders start collapsed by default
 
 ### Creating Notes
 
@@ -190,18 +201,44 @@ Use `Tab` or `Shift+Tab` to switch between panels.
 
 Notes are stored as `.md` files in your configured notes directory.
 
-### Renaming Notes
+**Context-aware**: When your cursor is on a folder or a note inside a folder, pressing `n` will create the new note in that folder.
 
-1. Select the note in the sidebar
-2. Press `r` to rename
-3. Edit the note name (pre-filled with current name)
-4. Press `Enter` to confirm or `Esc` to cancel
+### Creating Folders
 
-### Deleting Notes
+1. Press `N` (Shift+N) to create a new folder
+2. Enter the folder name
+3. Press `Enter` to confirm
+4. A dialog will appear to create the first note in the folder
+5. Enter the note name and press `Enter` (or `Esc` to cancel and remove the empty folder)
 
-1. Select the note in the sidebar
-2. Press `d` to delete
-3. Confirm with `y` or cancel with `n`
+**Context-aware**: When your cursor is on a folder, pressing `N` will create the new folder as a subfolder.
+
+### Renaming
+
+- Select a note or folder in the sidebar
+- Press `r` to rename
+- Edit the name and press `Enter` to confirm (or `Esc` to cancel)
+
+### Deleting
+
+- Select a note or folder in the sidebar
+- Press `d` to delete
+- Confirm with `y` or cancel with `n`
+- **Warning**: Deleting a folder will remove all notes inside it!
+
+### Searching Notes
+
+1. Press `/` in the sidebar to start searching
+2. Type your search query
+3. Results are highlighted in green, title shows match count
+4. Use `Arrow keys` or `Ctrl+j/k/n/p` to navigate between matches
+5. Press `Enter` to select and close search
+6. Press `Esc` to cancel search
+
+**Features**:
+- Searches all notes recursively, including those in collapsed folders
+- Auto-expands folders containing matched notes
+- Border color indicates status: yellow (typing), green (matches found), red (no matches)
 
 ### Editing Notes
 
@@ -323,13 +360,15 @@ The outline panel shows all headings in your note:
 
 ### Sidebar
 
-| Key   | Action              |
-| ----- | ------------------- |
-| `n`   | Create new note     |
-| `r`   | Rename note         |
-| `d`   | Delete note         |
-| `e`   | Edit note           |
-| `/`   | Search notes        |
+| Key     | Action                       |
+| ------- | ---------------------------- |
+| `n`     | Create new note              |
+| `N`     | Create new folder            |
+| `Enter` | Toggle folder / Open note    |
+| `r`     | Rename note/folder           |
+| `d`     | Delete note/folder           |
+| `e`     | Edit note                    |
+| `/`     | Search notes                 |
 
 ### Edit Mode
 

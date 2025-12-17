@@ -6,7 +6,7 @@ use ratatui::{
     Frame,
 };
 
-use crate::app::{App, Focus, Mode};
+use crate::app::{App, Focus, Mode, SidebarItemKind};
 
 pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
@@ -24,35 +24,72 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Render search input if active
     if let Some(search_area) = search_area {
+        let has_query = !app.search_query.is_empty();
+        let has_results = !app.search_matched_notes.is_empty();
+        let border_color = if has_query && !has_results {
+            theme.red 
+        } else if has_query && has_results {
+            theme.green 
+        } else {
+            theme.yellow 
+        };
+
         let search_block = Block::default()
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(theme.yellow))
+            .border_style(Style::default().fg(border_color))
             .title(" Search ");
 
         let search_text = Paragraph::new(Line::from(vec![
             Span::styled("/", Style::default().fg(theme.white)),
             Span::styled(&app.search_query, Style::default().fg(theme.foreground)),
-            Span::styled("_", Style::default().fg(theme.yellow)),
+            Span::styled("_", Style::default().fg(border_color)),
         ]))
         .block(search_block);
 
         f.render_widget(search_text, search_area);
     }
 
-    // Get visible notes (filtered or all)
-    let visible_notes = app.get_visible_notes();
+    let is_searching = app.search_active && !app.search_query.is_empty();
 
-    let items: Vec<ListItem> = visible_notes
+    let items: Vec<ListItem> = app.sidebar_items
         .iter()
-        .map(|(original_idx, note)| {
-            let style = if *original_idx == app.selected_note {
-                Style::default()
-                    .fg(theme.yellow)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme.foreground)
+        .enumerate()
+        .map(|(idx, item)| {
+            let is_selected = idx == app.selected_sidebar_index;
+            let indent = "  ".repeat(item.depth);
+
+            let (icon, style) = match &item.kind {
+                SidebarItemKind::Folder { expanded, .. } => {
+                    let icon = if *expanded { "▼ " } else { "▶ " };
+                    let style = if is_selected {
+                        Style::default()
+                            .fg(theme.cyan)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme.cyan)
+                    };
+                    (icon, style)
+                }
+                SidebarItemKind::Note { note_index } => {
+                    let icon = "  ";
+                    let is_match = is_searching && app.search_matched_notes.contains(note_index);
+                    let style = if is_selected {
+                        Style::default()
+                            .fg(theme.yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else if is_match {
+                        Style::default()
+                            .fg(theme.green)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(theme.foreground)
+                    };
+                    (icon, style)
+                }
             };
-            ListItem::new(Line::from(Span::styled(&note.title, style)))
+
+            let display = format!("{}{}{}", indent, icon, item.display_name);
+            ListItem::new(Line::from(Span::styled(display, style)))
         })
         .collect();
 
@@ -62,10 +99,16 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         Style::default().fg(theme.bright_black)
     };
 
-    let title = if app.search_active && !app.search_query.is_empty() {
-        format!(" Notes ({}) ", visible_notes.len())
+    let title = if is_searching {
+        let match_count = app.search_matched_notes.len();
+        let total_count = app.notes.len();
+        format!(" Found {}/{} ", match_count, total_count)
     } else {
-        " Notes ".to_string()
+        let note_count = app.sidebar_items
+            .iter()
+            .filter(|item| matches!(item.kind, SidebarItemKind::Note { .. }))
+            .count();
+        format!(" Notes ({}) ", note_count)
     };
 
     let sidebar = List::new(items)
@@ -80,13 +123,10 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                 .bg(theme.bright_black)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol("▶ ");
+        .highlight_symbol("");  
 
-    // Update list state selection based on visible notes
     let mut list_state = ListState::default();
-    if let Some(pos) = visible_notes.iter().position(|(i, _)| *i == app.selected_note) {
-        list_state.select(Some(pos));
-    }
+    list_state.select(Some(app.selected_sidebar_index));
 
     f.render_stateful_widget(sidebar, list_area, &mut list_state);
 }

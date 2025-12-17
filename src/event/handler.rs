@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEv
 use ratatui::{backend::CrosstermBackend, Terminal};
 use tui_textarea::Input;
 
-use crate::app::{App, DeleteType, DialogState, Focus, Mode, VimMode};
+use crate::app::{App, DeleteType, DialogState, Focus, Mode, SidebarItemKind, VimMode};
 use crate::ui;
 
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
@@ -33,7 +33,7 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
         match mouse.kind {
             MouseEventKind::ScrollDown => {
                 match app.focus {
-                    Focus::Sidebar => app.next_note(),
+                    Focus::Sidebar => app.next_sidebar_item(),
                     Focus::Content => {
                         app.next_content_line();
                         app.sync_outline_to_content();
@@ -43,7 +43,7 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
             }
             MouseEventKind::ScrollUp => {
                 match app.focus {
-                    Focus::Sidebar => app.previous_note(),
+                    Focus::Sidebar => app.previous_sidebar_item(),
                     Focus::Content => {
                         app.previous_content_line();
                         app.sync_outline_to_content();
@@ -68,12 +68,28 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) -> io::Resul
             handle_create_note_dialog(app, key);
             return Ok(false);
         }
+        DialogState::CreateFolder => {
+            handle_create_folder_dialog(app, key);
+            return Ok(false);
+        }
+        DialogState::CreateNoteInFolder => {
+            handle_create_note_in_folder_dialog(app, key);
+            return Ok(false);
+        }
         DialogState::DeleteConfirm => {
             handle_delete_confirm_dialog(app, key);
             return Ok(false);
         }
+        DialogState::DeleteFolderConfirm => {
+            handle_delete_folder_confirm_dialog(app, key);
+            return Ok(false);
+        }
         DialogState::RenameNote => {
             handle_rename_note_dialog(app, key);
+            return Ok(false);
+        }
+        DialogState::RenameFolder => {
+            handle_rename_folder_dialog(app, key);
             return Ok(false);
         }
         DialogState::Help => {
@@ -135,19 +151,92 @@ fn handle_onboarding_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
 fn handle_create_note_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
     match key.code {
         KeyCode::Enter => {
-            let name = app.input_buffer.clone();
+            let name = app.input_buffer.trim().to_string();
+            if name.is_empty() {
+                app.dialog_error = Some("Note name cannot be empty".to_string());
+                return;
+            }
             app.create_note(&name);
             app.input_buffer.clear();
+            app.dialog_error = None;
             app.dialog = DialogState::None;
         }
         KeyCode::Esc => {
             app.input_buffer.clear();
+            app.target_folder = None;
+            app.dialog_error = None;
             app.dialog = DialogState::None;
         }
         KeyCode::Char(c) => {
+            app.dialog_error = None;
             app.input_buffer.push(c);
         }
         KeyCode::Backspace => {
+            app.dialog_error = None;
+            app.input_buffer.pop();
+        }
+        _ => {}
+    }
+}
+
+fn handle_create_folder_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Enter => {
+            let name = app.input_buffer.trim().to_string();
+            if name.is_empty() {
+                app.dialog_error = Some("Folder name cannot be empty".to_string());
+                return;
+            }
+            if app.create_folder(&name) {
+                app.input_buffer.clear();
+                app.dialog_error = None;
+                app.dialog = DialogState::CreateNoteInFolder;
+            }
+        }
+        KeyCode::Esc => {
+            app.input_buffer.clear();
+            app.dialog_error = None;
+            app.target_folder = None;
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Char(c) => {
+            app.dialog_error = None; // Clear error on new input
+            app.input_buffer.push(c);
+        }
+        KeyCode::Backspace => {
+            app.dialog_error = None; // Clear error on edit
+            app.input_buffer.pop();
+        }
+        _ => {}
+    }
+}
+
+fn handle_create_note_in_folder_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Enter => {
+            let name = app.input_buffer.trim().to_string();
+            if name.is_empty() {
+                app.dialog_error = Some("Note name cannot be empty".to_string());
+                return;
+            }
+            app.create_note(&name);
+            app.input_buffer.clear();
+            app.dialog_error = None;
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Esc => {
+            app.input_buffer.clear();
+            app.target_folder = None;
+            app.dialog_error = None;
+            app.dialog = DialogState::None;
+            app.load_notes_from_dir();
+        }
+        KeyCode::Char(c) => {
+            app.dialog_error = None;
+            app.input_buffer.push(c);
+        }
+        KeyCode::Backspace => {
+            app.dialog_error = None;
             app.input_buffer.pop();
         }
         _ => {}
@@ -158,6 +247,19 @@ fn handle_delete_confirm_dialog(app: &mut App, key: crossterm::event::KeyEvent) 
     match key.code {
         KeyCode::Char('y') | KeyCode::Char('Y') => {
             app.delete_current_note();
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+            app.dialog = DialogState::None;
+        }
+        _ => {}
+    }
+}
+
+fn handle_delete_folder_confirm_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Char('y') | KeyCode::Char('Y') => {
+            app.delete_current_folder();
             app.dialog = DialogState::None;
         }
         KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
@@ -183,6 +285,33 @@ fn handle_rename_note_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
             app.input_buffer.push(c);
         }
         KeyCode::Backspace => {
+            app.input_buffer.pop();
+        }
+        _ => {}
+    }
+}
+
+fn handle_rename_folder_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Enter => {
+            let new_name = app.input_buffer.clone();
+            app.rename_folder(&new_name);
+            if app.dialog_error.is_none() {
+                app.input_buffer.clear();
+                app.dialog = DialogState::None;
+            }
+        }
+        KeyCode::Esc => {
+            app.input_buffer.clear();
+            app.dialog_error = None;
+            app.dialog = DialogState::None;
+        }
+        KeyCode::Char(c) => {
+            app.dialog_error = None; 
+            app.input_buffer.push(c);
+        }
+        KeyCode::Backspace => {
+            app.dialog_error = None; 
             app.input_buffer.pop();
         }
         _ => {}
@@ -236,47 +365,53 @@ fn handle_welcome_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
 }
 
 fn handle_search_input(app: &mut App, key: crossterm::event::KeyEvent) {
+    let is_nav_down = key.code == KeyCode::Down
+        || (key.code == KeyCode::Char('j') && key.modifiers == KeyModifiers::CONTROL)
+        || (key.code == KeyCode::Char('n') && key.modifiers == KeyModifiers::CONTROL);
+    let is_nav_up = key.code == KeyCode::Up
+        || (key.code == KeyCode::Char('k') && key.modifiers == KeyModifiers::CONTROL)
+        || (key.code == KeyCode::Char('p') && key.modifiers == KeyModifiers::CONTROL);
+
+    if is_nav_down {
+        let visible_indices = app.get_visible_sidebar_indices();
+        if !visible_indices.is_empty() {
+            let current_pos = visible_indices.iter()
+                .position(|&i| i == app.selected_sidebar_index)
+                .unwrap_or(0);
+            let next_pos = (current_pos + 1) % visible_indices.len();
+            app.selected_sidebar_index = visible_indices[next_pos];
+            app.sync_selected_note_from_sidebar();
+            app.update_outline();
+            app.update_content_items();
+        }
+        return;
+    }
+
+    if is_nav_up {
+        let visible_indices = app.get_visible_sidebar_indices();
+        if !visible_indices.is_empty() {
+            let current_pos = visible_indices.iter()
+                .position(|&i| i == app.selected_sidebar_index)
+                .unwrap_or(0);
+            let prev_pos = if current_pos == 0 { visible_indices.len() - 1 } else { current_pos - 1 };
+            app.selected_sidebar_index = visible_indices[prev_pos];
+            app.sync_selected_note_from_sidebar();
+            app.update_outline();
+            app.update_content_items();
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Esc => {
             app.clear_search();
         }
         KeyCode::Enter => {
-            // Select first filtered note if any
-            let visible = app.get_visible_notes();
-            if !visible.is_empty() {
-                app.selected_note = visible[0].0;
-                app.current_image = None;
-                app.update_outline();
-                app.update_content_items();
-            }
             app.search_active = false;
         }
         KeyCode::Backspace => {
             app.search_query.pop();
             app.update_filtered_indices();
-        }
-        KeyCode::Down => {
-            // Navigate within filtered results
-            let visible = app.get_visible_notes();
-            if !visible.is_empty() {
-                let current_pos = visible.iter().position(|(i, _)| *i == app.selected_note).unwrap_or(0);
-                let next_pos = (current_pos + 1) % visible.len();
-                app.selected_note = visible[next_pos].0;
-                app.current_image = None;
-                app.update_outline();
-                app.update_content_items();
-            }
-        }
-        KeyCode::Up => {
-            let visible = app.get_visible_notes();
-            if !visible.is_empty() {
-                let current_pos = visible.iter().position(|(i, _)| *i == app.selected_note).unwrap_or(0);
-                let prev_pos = if current_pos == 0 { visible.len() - 1 } else { current_pos - 1 };
-                app.selected_note = visible[prev_pos].0;
-                app.current_image = None;
-                app.update_outline();
-                app.update_content_items();
-            }
         }
         KeyCode::Char(c) => {
             app.search_query.push(c);
@@ -295,24 +430,57 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
         KeyCode::Char('e') => app.enter_edit_mode(),
         KeyCode::Char('n') => {
             app.input_buffer.clear();
+            app.dialog_error = None;
+            let context_folder = app.get_current_context_folder();
+            if context_folder.as_ref() != Some(&app.config.notes_path()) {
+                app.target_folder = context_folder;
+            } else {
+                app.target_folder = None;
+            }
             app.dialog = DialogState::CreateNote;
         }
+        KeyCode::Char('N') => {
+            app.input_buffer.clear();
+            app.dialog_error = None;
+            let context_folder = app.get_current_context_folder();
+            if context_folder.as_ref() != Some(&app.config.notes_path()) {
+                app.target_folder = context_folder;
+            } else {
+                app.target_folder = None;
+            }
+            app.dialog = DialogState::CreateFolder;
+        }
         KeyCode::Char('d') => {
-            if !app.notes.is_empty() {
-                app.dialog = DialogState::DeleteConfirm;
+            if let Some(item) = app.sidebar_items.get(app.selected_sidebar_index) {
+                match &item.kind {
+                    SidebarItemKind::Note { .. } => {
+                        app.dialog = DialogState::DeleteConfirm;
+                    }
+                    SidebarItemKind::Folder { .. } => {
+                        app.dialog = DialogState::DeleteFolderConfirm;
+                    }
+                }
             }
         }
         KeyCode::Char('r') => {
-            if !app.notes.is_empty() {
-                if let Some(note) = app.current_note() {
-                    app.input_buffer = note.title.clone();
+            if let Some(item) = app.sidebar_items.get(app.selected_sidebar_index) {
+                match &item.kind {
+                    SidebarItemKind::Note { note_index } => {
+                        app.input_buffer = app.notes[*note_index].title.clone();
+                        app.dialog_error = None;
+                        app.dialog = DialogState::RenameNote;
+                    }
+                    SidebarItemKind::Folder { .. } => {
+                        app.input_buffer = item.display_name.clone();
+                        app.dialog_error = None;
+                        app.dialog = DialogState::RenameFolder;
+                    }
                 }
-                app.dialog = DialogState::RenameNote;
             }
         }
         KeyCode::Down | KeyCode::Char('j') => {
             match app.focus {
-                Focus::Sidebar => app.next_note(),
+                Focus::Sidebar => app.next_sidebar_item(),
                 Focus::Outline => app.next_outline(),
                 Focus::Content => {
                     app.next_content_line();
@@ -322,7 +490,7 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
         }
         KeyCode::Up | KeyCode::Char('k') => {
             match app.focus {
-                Focus::Sidebar => app.previous_note(),
+                Focus::Sidebar => app.previous_sidebar_item(),
                 Focus::Outline => app.previous_outline(),
                 Focus::Content => {
                     app.previous_content_line();
@@ -334,7 +502,7 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
             match app.focus {
                 Focus::Content => app.open_current_image(),
                 Focus::Outline => app.jump_to_outline(),
-                Focus::Sidebar => {}
+                Focus::Sidebar => app.handle_sidebar_enter(),
             }
         }
         KeyCode::Char('o') => {
