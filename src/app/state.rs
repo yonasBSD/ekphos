@@ -13,6 +13,7 @@ use ratatui::{
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 use tui_textarea::TextArea;
 
+use crate::highlight::Highlighter;
 use crate::theme::{Config, Theme};
 
 const WELCOME_NOTE_CONTENT: &str = r#"# Welcome to Ekphos
@@ -156,15 +157,35 @@ Multiple lines are supported.
 
 ### Code Blocks
 
+Code blocks support **syntax highlighting** for many languages:
+
 ```rust
+// Rust example with syntax highlighting
 fn main() {
-    println!("Hello, Ekphos!");
+    let message = "Hello, Ekphos!";
+    println!("{}", message);
+
+    for i in 0..5 {
+        println!("Count: {}", i);
+    }
 }
 ```
 
 ```python
-def greet():
-    return "Hello from Python"
+# Python also works
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+if __name__ == "__main__":
+    print(greet("World"))
+```
+
+```javascript
+// JavaScript too
+const greet = (name) => {
+    return `Hello, ${name}!`;
+};
+console.log(greet("Ekphos"));
 ```
 
 ### Horizontal Rules
@@ -377,6 +398,7 @@ pub struct App<'a> {
     pub content_item_rects: Vec<(usize, Rect)>,
     pub selected_link_index: usize,
     pub details_open_states: HashMap<usize, bool>,
+    pub highlighter: Highlighter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -397,6 +419,7 @@ impl<'a> App<'a> {
         let is_first_launch = !config_exists;
 
         let theme = Theme::from_name(&config.theme);
+        let syntax_theme = config.syntax_theme.clone();
 
         let mut list_state = ListState::default();
         list_state.select(Some(0));
@@ -487,6 +510,7 @@ impl<'a> App<'a> {
             content_item_rects: Vec::new(),
             selected_link_index: 0,
             details_open_states: HashMap::new(),
+            highlighter: Highlighter::new(&syntax_theme),
         };
 
         if !is_first_launch && notes_dir_exists {

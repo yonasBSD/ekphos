@@ -81,6 +81,7 @@ notes_dir = "~/Documents/ekphos"
 welcome_shown = false
 theme = "catppuccin-mocha"
 show_empty_dir = true
+syntax_theme = "base16-ocean.dark"
 ```
 
 | Setting          | Description                            | Default              |
@@ -89,6 +90,7 @@ show_empty_dir = true
 | `welcome_shown`  | Show welcome dialog on startup         | `true`               |
 | `theme`          | Theme name (without .toml extension)   | `catppuccin-mocha`   |
 | `show_empty_dir` | Show folders that contain no .md files | `true`               |
+| `syntax_theme`   | Syntax highlighting theme for code     | `base16-ocean.dark`  |
 
 > **Note:** This configuration format requires v0.3.0 or later. Earlier versions have a broken config system, please upgrade to latest version to enjoy proper configuration and theming support.
 
@@ -314,11 +316,47 @@ Press `v` in normal mode to enter visual mode for text selection.
 | `- [ ] task`      | [ ] task (unchecked)       |
 | `- [x] task`      | [x] task (checked)         |
 | `` `code` ``      | Inline code (green)        |
-| ` ``` `           | Code block                 |
+| ` ```lang `       | Syntax-highlighted code    |
 | `![alt](path)`    | Inline image               |
 | `[text](url)`     | Clickable link (cyan)      |
 | `| table |`       | Formatted table            |
 | `<details>`       | Collapsible dropdown (cyan)|
+
+### Syntax Highlighting
+
+Code blocks with a language specifier are syntax-highlighted using [syntect](https://github.com/trishume/syntect):
+
+````markdown
+```rust
+fn main() {
+    let message = "Hello, Ekphos!";
+    println!("{}", message);
+}
+```
+````
+
+**Supported languages:** Rust, Python, JavaScript, TypeScript, Go, C, C++, Java, Ruby, PHP, Shell, SQL, HTML, CSS, JSON, YAML, Markdown, and [many more](https://github.com/sublimehq/Packages).
+
+Code blocks without a language specifier render in a uniform green color.
+
+**Available syntax themes:**
+
+| Theme                  | Description                     |
+| ---------------------- | ------------------------------- |
+| `base16-ocean.dark`    | Dark ocean theme (default)      |
+| `base16-ocean.light`   | Light ocean theme               |
+| `base16-eighties.dark` | Dark 80s retro theme            |
+| `base16-mocha.dark`    | Dark mocha theme                |
+| `InspiredGitHub`       | GitHub-inspired light theme     |
+| `Solarized (dark)`     | Solarized dark theme            |
+| `Solarized (light)`    | Solarized light theme           |
+
+Set in config:
+
+```toml
+# ~/.config/ekphos/config.toml
+syntax_theme = "base16-mocha.dark"
+```
 
 ### Adding Images
 

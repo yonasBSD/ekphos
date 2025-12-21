@@ -10,6 +10,7 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 
 use crate::app::{App, ContentItem, Focus, ImageState, Mode};
+use crate::highlight::Highlighter;
 use crate::theme::Theme;
 
 pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
@@ -194,6 +195,18 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    let mut current_lang = String::new();
+    if let Some(&first_visible_idx) = visible_indices.first() {
+        for i in (0..first_visible_idx).rev() {
+            if let ContentItem::CodeFence(lang) = &app.content_items[i] {
+                if !lang.is_empty() {
+                    current_lang = lang.clone();
+                }
+                break;
+            }
+        }
+    }
+
     for (chunk_idx, &item_idx) in visible_indices.iter().enumerate() {
         if chunk_idx >= chunks.len() {
             break;
@@ -214,9 +227,10 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                 render_inline_image_with_cursor(f, app, &path, chunks[chunk_idx], is_cursor_line, is_hovered);
             }
             ContentItem::CodeLine(line) => {
-                render_code_line(f, &app.theme, &line, chunks[chunk_idx], is_cursor_line);
+                render_code_line(f, &app.theme, &app.highlighter, &line, &current_lang, chunks[chunk_idx], is_cursor_line);
             }
             ContentItem::CodeFence(lang) => {
+                current_lang = lang.clone();
                 render_code_fence(f, &app.theme, &lang, chunks[chunk_idx], is_cursor_line);
             }
             ContentItem::TaskItem { text, checked, .. } => {
@@ -492,14 +506,29 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
     f.render_widget(paragraph, area);
 }
 
-fn render_code_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_cursor: bool) {
+fn render_code_line(
+    f: &mut Frame,
+    theme: &Theme,
+    highlighter: &Highlighter,
+    line: &str,
+    lang: &str,
+    area: Rect,
+    is_cursor: bool,
+) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
 
-    let styled_line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
         Span::styled("│ ", Style::default().fg(theme.bright_black)),
-        Span::styled(line, Style::default().fg(theme.green)),
-    ]);
+    ];
+
+    if !lang.is_empty() {
+        spans.extend(highlighter.highlight_line(line, lang));
+    } else {
+        spans.push(Span::styled(line.to_string(), Style::default().fg(theme.green)));
+    }
+
+    let styled_line = Line::from(spans);
 
     let style = if is_cursor {
         Style::default().bg(theme.bright_black)
