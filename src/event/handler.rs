@@ -9,20 +9,24 @@ use crate::ui;
 
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
     loop {
+        app.poll_pending_images();
+
         terminal.draw(|f| ui::render(f, app))?;
 
-        match event::read()? {
-            Event::Mouse(mouse) => {
-                handle_mouse_event(app, mouse);
-            }
-            Event::Key(key) => {
-                if key.kind == KeyEventKind::Press {
-                    if handle_key_event(app, key)? {
-                        return Ok(());
+        if event::poll(std::time::Duration::from_millis(100))? {
+            match event::read()? {
+                Event::Mouse(mouse) => {
+                    handle_mouse_event(app, mouse);
+                }
+                Event::Key(key) => {
+                    if key.kind == KeyEventKind::Press {
+                        if handle_key_event(app, key)? {
+                            return Ok(());
+                        }
                     }
                 }
+                _ => {}
             }
-            _ => {}
         }
     }
 }

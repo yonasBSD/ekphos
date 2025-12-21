@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use image::DynamicImage;
 use ratatui::{
@@ -292,6 +293,9 @@ pub struct App<'a> {
     pub picker: Option<Picker>,
     pub image_cache: HashMap<String, DynamicImage>,
     pub current_image: Option<ImageState>,
+    pub pending_images: HashSet<String>,
+    pub image_sender: Sender<(String, DynamicImage)>,
+    pub image_receiver: Receiver<(String, DynamicImage)>,
     pub show_welcome: bool,
     pub outline: Vec<OutlineItem>,
     pub outline_state: ListState,
@@ -317,7 +321,7 @@ pub struct App<'a> {
     pub folder_states: HashMap<PathBuf, bool>,
     pub target_folder: Option<PathBuf>,
     pub dialog_error: Option<String>,
-    pub search_matched_notes: Vec<usize>, 
+    pub search_matched_notes: Vec<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -382,6 +386,8 @@ impl<'a> App<'a> {
 
         let input_buffer = config.notes_dir.clone();
 
+        let (image_sender, image_receiver) = mpsc::channel();
+
         let mut app = Self {
             notes: Vec::new(),
             selected_note: 0,
@@ -392,6 +398,9 @@ impl<'a> App<'a> {
             picker,
             image_cache: HashMap::new(),
             current_image: None,
+            pending_images: HashSet::new(),
+            image_sender,
+            image_receiver,
             show_welcome: !is_first_launch && config.welcome_shown && notes_dir_exists && !notes_dir_empty,
             outline: Vec::new(),
             outline_state: ListState::default(),
@@ -1494,6 +1503,56 @@ impl<'a> App<'a> {
             false
         }
     }
+
+    pub fn poll_pending_images(&mut self) {
+        while let Ok((url, img)) = self.image_receiver.try_recv() {
+            self.pending_images.remove(&url);
+            self.image_cache.insert(url, img);
+        }
+    }
+
+    pub fn is_image_pending(&self, url: &str) -> bool {
+        self.pending_images.contains(url)
+    }
+
+    pub fn start_remote_image_fetch(&mut self, url: &str) {
+        if self.pending_images.contains(url) || self.image_cache.contains_key(url) {
+            return;
+        }
+
+        self.pending_images.insert(url.to_string());
+        let url_owned = url.to_string();
+        let sender = self.image_sender.clone();
+
+        std::thread::spawn(move || {
+            if let Some(img) = fetch_remote_image_blocking(&url_owned) {
+                let _ = sender.send((url_owned, img));
+            }
+        });
+    }
+}
+
+fn fetch_remote_image_blocking(url: &str) -> Option<DynamicImage> {
+    use std::io::Read;
+
+    let response = ureq::get(url)
+        .set("User-Agent", "ekphos/0.4")
+        .call()
+        .ok()?;
+
+    let content_type = response
+        .header("Content-Type")
+        .unwrap_or("")
+        .to_lowercase();
+
+    if !content_type.starts_with("image/") {
+        return None;
+    }
+
+    let mut bytes = Vec::new();
+    response.into_reader().take(10 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
+
+    image::load_from_memory(&bytes).ok()
 }
 
 impl Default for App<'_> {

@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::path::PathBuf;
 
 use ratatui::{
@@ -550,6 +549,10 @@ fn render_table_row(
 }
 
 fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, area: Rect, is_cursor: bool) {
+    let is_remote = path.starts_with("http://") || path.starts_with("https://");
+    let is_pending = is_remote && app.is_image_pending(path);
+    let is_cached = app.image_cache.contains_key(path);
+
     // Check if we need to load a new image
     let need_load = match &app.current_image {
         Some(state) => state.path != path,
@@ -557,14 +560,14 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
     };
 
     if need_load {
-        // Load image from cache, disk, or remote URL
+        // Load image from cache, disk, or trigger async fetch for remote
         let img = if let Some(img) = app.image_cache.get(path) {
             Some(img.clone())
-        } else if path.starts_with("http://") || path.starts_with("https://") {
-            fetch_remote_image(path).map(|img| {
-                app.image_cache.insert(path.to_string(), img.clone());
-                img
-            })
+        } else if is_remote {
+            if !is_pending {
+                app.start_remote_image_fetch(path);
+            }
+            None 
         } else {
             let path_buf = PathBuf::from(path);
             if path_buf.exists() {
@@ -592,11 +595,15 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
     let theme = &app.theme;
     let border_color = if is_cursor {
         theme.yellow
+    } else if is_pending {
+        theme.magenta
     } else {
         theme.cyan
     };
 
-    let title = if is_cursor {
+    let title = if is_pending {
+        format!(" Loading: {} ", path)
+    } else if is_cursor {
         format!(" Image: {} [Enter/o to open] ", path)
     } else {
         format!(" Image: {} ", path)
@@ -617,36 +624,21 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
 
     f.render_widget(block, area);
 
+    if is_pending || (is_remote && !is_cached && app.current_image.as_ref().map(|s| s.path != path).unwrap_or(true)) {
+        let loading = Paragraph::new("  Loading remote image...")
+            .style(Style::default().fg(theme.magenta).add_modifier(Modifier::ITALIC));
+        f.render_widget(loading, inner_area);
+        return;
+    }
+
     if let Some(state) = &mut app.current_image {
         if state.path == path {
             let image_widget = StatefulImage::new(None);
             f.render_stateful_widget(image_widget, inner_area, &mut state.image);
         }
-    } else {
-        // Show placeholder if image couldn't be loaded
+    } else if !is_remote {
         let placeholder = Paragraph::new("  [Image not found]")
             .style(Style::default().fg(theme.red).add_modifier(Modifier::ITALIC));
         f.render_widget(placeholder, inner_area);
     }
-}
-
-fn fetch_remote_image(url: &str) -> Option<image::DynamicImage> {
-    let response = ureq::get(url)
-        .set("User-Agent", "ekphos/0.4")
-        .call()
-        .ok()?;
-
-    let content_type = response
-        .header("Content-Type")
-        .unwrap_or("")
-        .to_lowercase();
-
-    if !content_type.starts_with("image/") {
-        return None;
-    }
-
-    let mut bytes = Vec::new();
-    response.into_reader().take(10 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
-
-    image::load_from_memory(&bytes).ok()
 }
