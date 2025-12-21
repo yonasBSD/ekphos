@@ -1,4 +1,3 @@
-use std::io::Read;
 use std::path::PathBuf;
 
 use ratatui::{
@@ -11,6 +10,7 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 
 use crate::app::{App, ContentItem, Focus, ImageState, Mode};
+use crate::highlight::Highlighter;
 use crate::theme::Theme;
 
 pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
@@ -57,7 +57,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         ((total_len as f64 / available_width as f64).ceil() as u16).max(1)
     };
 
-    // Helper to get item height
+    let details_states = &app.details_open_states;
     let get_item_height = |item: &ContentItem| -> u16 {
         match item {
             ContentItem::TextLine(line) => calc_wrapped_height(line, 4),
@@ -65,6 +65,15 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             ContentItem::CodeLine(line) => calc_wrapped_height(line, 6),
             ContentItem::CodeFence(_) => 1u16,
             ContentItem::TaskItem { text, .. } => calc_wrapped_height(text, 6),
+            ContentItem::TableRow { .. } => 1u16,
+            ContentItem::Details { content_lines, id, .. } => {
+                let is_open = details_states.get(id).copied().unwrap_or(false);
+                if is_open {
+                    1 + content_lines.len() as u16
+                } else {
+                    1u16 
+                }
+            }
         }
     };
 
@@ -168,6 +177,8 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
     }
 
     if constraints.is_empty() {
+        app.content_area = inner_area;
+        app.content_item_rects.clear();
         return;
     }
 
@@ -176,39 +187,71 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         .constraints(constraints)
         .split(inner_area);
 
+    app.content_area = inner_area;
+    app.content_item_rects.clear();
+    for (chunk_idx, &item_idx) in visible_indices.iter().enumerate() {
+        if chunk_idx < chunks.len() {
+            app.content_item_rects.push((item_idx, chunks[chunk_idx]));
+        }
+    }
+
+    let mut current_lang = String::new();
+    if let Some(&first_visible_idx) = visible_indices.first() {
+        for i in (0..first_visible_idx).rev() {
+            if let ContentItem::CodeFence(lang) = &app.content_items[i] {
+                if !lang.is_empty() {
+                    current_lang = lang.clone();
+                }
+                break;
+            }
+        }
+    }
+
     for (chunk_idx, &item_idx) in visible_indices.iter().enumerate() {
         if chunk_idx >= chunks.len() {
             break;
         }
         let is_cursor_line = item_idx == cursor && is_focused;
+        let is_hovered = app.mouse_hover_item == Some(item_idx);
 
         // Clone the item data to avoid borrow conflicts
         let item_clone = app.content_items[item_idx].clone();
 
         match item_clone {
             ContentItem::TextLine(line) => {
-                render_content_line(f, &app.theme, &line, chunks[chunk_idx], is_cursor_line);
+                let has_link = (is_cursor_line || is_hovered) && app.item_link_at(item_idx).is_some();
+                let selected_link = if is_cursor_line { app.selected_link_index } else { 0 };
+                render_content_line(f, &app.theme, &line, chunks[chunk_idx], is_cursor_line, has_link, selected_link);
             }
             ContentItem::Image(path) => {
-                render_inline_image_with_cursor(f, app, &path, chunks[chunk_idx], is_cursor_line);
+                render_inline_image_with_cursor(f, app, &path, chunks[chunk_idx], is_cursor_line, is_hovered);
             }
             ContentItem::CodeLine(line) => {
-                render_code_line(f, &app.theme, &line, chunks[chunk_idx], is_cursor_line);
+                render_code_line(f, &app.theme, &app.highlighter, &line, &current_lang, chunks[chunk_idx], is_cursor_line);
             }
             ContentItem::CodeFence(lang) => {
+                current_lang = lang.clone();
                 render_code_fence(f, &app.theme, &lang, chunks[chunk_idx], is_cursor_line);
             }
             ContentItem::TaskItem { text, checked, .. } => {
                 render_task_item(f, &app.theme, &text, checked, chunks[chunk_idx], is_cursor_line);
             }
+            ContentItem::TableRow { cells, is_separator, is_header, column_widths } => {
+                render_table_row(f, &app.theme, &cells, is_separator, is_header, &column_widths, chunks[chunk_idx], is_cursor_line);
+            }
+            ContentItem::Details { summary, content_lines, id } => {
+                let is_open = app.details_open_states.get(&id).copied().unwrap_or(false);
+                render_details(f, &app.theme, &summary, &content_lines, is_open, chunks[chunk_idx], is_cursor_line);
+            }
         }
     }
 }
 
-fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
+fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme, selected_link: Option<usize>) -> Vec<Span<'a>> {
     let mut spans = Vec::new();
     let mut chars = text.char_indices().peekable();
     let mut current_start = 0;
+    let mut link_index = 0;
 
     while let Some((i, c)) = chars.next() {
         // Check for **bold**
@@ -273,6 +316,44 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
             }
             continue;
         }
+
+        // Check for [link text](url)
+        if c == '[' {
+            let remaining = &text[i..];
+            if let Some(bracket_end) = remaining.find("](") {
+                let after_bracket = &remaining[bracket_end + 2..];
+                if let Some(paren_end) = after_bracket.find(')') {
+                    if i > current_start {
+                        spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
+                    }
+
+                    let link_text = &remaining[1..bracket_end];
+                    let _link_url = &after_bracket[..paren_end];
+
+                    let is_selected = selected_link == Some(link_index);
+                    let style = if is_selected {
+                        Style::default()
+                            .fg(theme.black)
+                            .bg(theme.yellow)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                            .fg(theme.cyan)
+                            .add_modifier(Modifier::UNDERLINED)
+                    };
+
+                    spans.push(Span::styled(link_text, style));
+                    link_index += 1;
+
+                    let total_link_len = bracket_end + 2 + paren_end + 1; // [text](url)
+                    for _ in 0..total_link_len - 1 {
+                        chars.next();
+                    }
+                    current_start = i + total_link_len;
+                    continue;
+                }
+            }
+        }
     }
 
     // Add remaining text
@@ -287,7 +368,7 @@ fn parse_inline_formatting<'a>(text: &'a str, theme: &Theme) -> Vec<Span<'a>> {
     spans
 }
 
-fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_cursor: bool) {
+fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_cursor: bool, has_link: bool, selected_link: usize) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
 
     // Check headings from most specific (######) to least specific (#)
@@ -363,11 +444,12 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
         ])
     } else if line.starts_with("- ") {
         // Bullet list
+        let selected = if is_cursor { Some(selected_link) } else { None };
         let mut spans = vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled("• ", Style::default().fg(theme.magenta)),
         ];
-        spans.extend(parse_inline_formatting(line.trim_start_matches("- "), theme));
+        spans.extend(parse_inline_formatting(line.trim_start_matches("- "), theme, selected));
         Line::from(spans)
     } else if line.starts_with("> ") {
         // Blockquote
@@ -387,19 +469,29 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
         ])
     } else if line.starts_with("* ") {
         // Bullet list (asterisk variant)
+        let selected = if is_cursor { Some(selected_link) } else { None };
         let mut spans = vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
             Span::styled("• ", Style::default().fg(theme.magenta)),
         ];
-        spans.extend(parse_inline_formatting(line.trim_start_matches("* "), theme));
+        spans.extend(parse_inline_formatting(line.trim_start_matches("* "), theme, selected));
         Line::from(spans)
     } else {
         // Regular text lines (including numbered lists)
+        let selected = if is_cursor { Some(selected_link) } else { None };
         let mut spans = vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
         ];
-        spans.extend(parse_inline_formatting(line, theme));
+        spans.extend(parse_inline_formatting(line, theme, selected));
         Line::from(spans)
+    };
+
+    let final_line = if has_link {
+        let mut spans = styled_line.spans;
+        spans.push(Span::styled(" Open ↗", Style::default().fg(theme.cyan)));
+        Line::from(spans)
+    } else {
+        styled_line
     };
 
     let style = if is_cursor {
@@ -408,20 +500,35 @@ fn render_content_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_
         Style::default()
     };
 
-    let paragraph = Paragraph::new(styled_line)
+    let paragraph = Paragraph::new(final_line)
         .style(style)
         .wrap(Wrap { trim: true });
     f.render_widget(paragraph, area);
 }
 
-fn render_code_line(f: &mut Frame, theme: &Theme, line: &str, area: Rect, is_cursor: bool) {
+fn render_code_line(
+    f: &mut Frame,
+    theme: &Theme,
+    highlighter: &Highlighter,
+    line: &str,
+    lang: &str,
+    area: Rect,
+    is_cursor: bool,
+) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
 
-    let styled_line = Line::from(vec![
+    let mut spans = vec![
         Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
         Span::styled("│ ", Style::default().fg(theme.bright_black)),
-        Span::styled(line, Style::default().fg(theme.green)),
-    ]);
+    ];
+
+    if !lang.is_empty() {
+        spans.extend(highlighter.highlight_line(line, lang));
+    } else {
+        spans.push(Span::styled(line.to_string(), Style::default().fg(theme.green)));
+    }
+
+    let styled_line = Line::from(spans);
 
     let style = if is_cursor {
         Style::default().bg(theme.bright_black)
@@ -484,7 +591,72 @@ fn render_task_item(f: &mut Frame, theme: &Theme, text: &str, checked: bool, are
     f.render_widget(paragraph, area);
 }
 
-fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, area: Rect, is_cursor: bool) {
+fn render_table_row(
+    f: &mut Frame,
+    theme: &Theme,
+    cells: &[String],
+    is_separator: bool,
+    is_header: bool,
+    column_widths: &[usize],
+    area: Rect,
+    is_cursor: bool,
+) {
+    let cursor_indicator = if is_cursor { "▶ " } else { "  " };
+    let border_color = theme.bright_black;
+
+    let mut spans = vec![
+        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+        Span::styled("│", Style::default().fg(border_color)),
+    ];
+
+    if is_separator {
+        for (i, &width) in column_widths.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled("┼", Style::default().fg(border_color)));
+            }
+            let dashes = "─".repeat(width + 2);
+            spans.push(Span::styled(dashes, Style::default().fg(border_color)));
+        }
+    } else {
+        for (i, cell) in cells.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::styled("│", Style::default().fg(border_color)));
+            }
+
+            let width = column_widths.get(i).copied().unwrap_or(cell.chars().count());
+            let cell_content = format!(" {:^width$} ", cell, width = width);
+
+            let cell_style = if is_header {
+                Style::default().fg(theme.cyan).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(theme.foreground)
+            };
+
+            spans.push(Span::styled(cell_content, cell_style));
+        }
+    }
+
+    spans.push(Span::styled("│", Style::default().fg(border_color)));
+
+    let styled_line = Line::from(spans);
+
+    let style = if is_cursor {
+        Style::default().bg(theme.bright_black)
+    } else {
+        Style::default()
+    };
+
+    let paragraph = Paragraph::new(styled_line)
+        .style(style)
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, area);
+}
+
+fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, area: Rect, is_cursor: bool, is_hovered: bool) {
+    let is_remote = path.starts_with("http://") || path.starts_with("https://");
+    let is_pending = is_remote && app.is_image_pending(path);
+    let is_cached = app.image_cache.contains_key(path);
+
     // Check if we need to load a new image
     let need_load = match &app.current_image {
         Some(state) => state.path != path,
@@ -492,14 +664,14 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
     };
 
     if need_load {
-        // Load image from cache, disk, or remote URL
+        // Load image from cache, disk, or trigger async fetch for remote
         let img = if let Some(img) = app.image_cache.get(path) {
             Some(img.clone())
-        } else if path.starts_with("http://") || path.starts_with("https://") {
-            fetch_remote_image(path).map(|img| {
-                app.image_cache.insert(path.to_string(), img.clone());
-                img
-            })
+        } else if is_remote {
+            if !is_pending {
+                app.start_remote_image_fetch(path);
+            }
+            None
         } else {
             let path_buf = PathBuf::from(path);
             if path_buf.exists() {
@@ -525,14 +697,21 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
 
     // Create a bordered area for the image with cursor indicator
     let theme = &app.theme;
+    let show_hint = is_cursor || is_hovered;
     let border_color = if is_cursor {
         theme.yellow
+    } else if is_hovered {
+        theme.cyan
+    } else if is_pending {
+        theme.magenta
     } else {
         theme.cyan
     };
 
-    let title = if is_cursor {
-        format!(" Image: {} [Enter/o to open] ", path)
+    let title = if is_pending {
+        format!(" Loading: {} ", path)
+    } else if show_hint {
+        format!(" Image: {} Open  ↗ ", path)
     } else {
         format!(" Image: {} ", path)
     };
@@ -552,36 +731,68 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
 
     f.render_widget(block, area);
 
+    if is_pending || (is_remote && !is_cached && app.current_image.as_ref().map(|s| s.path != path).unwrap_or(true)) {
+        let loading = Paragraph::new("  Loading remote image...")
+            .style(Style::default().fg(theme.magenta).add_modifier(Modifier::ITALIC));
+        f.render_widget(loading, inner_area);
+        return;
+    }
+
     if let Some(state) = &mut app.current_image {
         if state.path == path {
             let image_widget = StatefulImage::new(None);
             f.render_stateful_widget(image_widget, inner_area, &mut state.image);
         }
-    } else {
-        // Show placeholder if image couldn't be loaded
+    } else if !is_remote {
         let placeholder = Paragraph::new("  [Image not found]")
             .style(Style::default().fg(theme.red).add_modifier(Modifier::ITALIC));
         f.render_widget(placeholder, inner_area);
     }
 }
 
-fn fetch_remote_image(url: &str) -> Option<image::DynamicImage> {
-    let response = ureq::get(url)
-        .set("User-Agent", "ekphos/0.4")
-        .call()
-        .ok()?;
+fn render_details(
+    f: &mut Frame,
+    theme: &Theme,
+    summary: &str,
+    content_lines: &[String],
+    is_open: bool,
+    area: Rect,
+    is_cursor: bool,
+) {
+    let cursor_indicator = if is_cursor { "▶ " } else { "  " };
+    let toggle_indicator = if is_open { "▼ " } else { "▶ " };
 
-    let content_type = response
-        .header("Content-Type")
-        .unwrap_or("")
-        .to_lowercase();
+    let mut lines: Vec<Line> = Vec::new();
 
-    if !content_type.starts_with("image/") {
-        return None;
+    let summary_spans = vec![
+        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+        Span::styled(toggle_indicator, Style::default().fg(theme.cyan)),
+        Span::styled(
+            summary,
+            Style::default().fg(theme.cyan).add_modifier(Modifier::BOLD),
+        ),
+    ];
+    lines.push(Line::from(summary_spans));
+
+    if is_open {
+        for content in content_lines {
+            let content_spans = vec![
+                Span::styled("  ", Style::default()),
+                Span::styled("│ ", Style::default().fg(theme.bright_black)),
+                Span::styled(content, Style::default().fg(theme.foreground)),
+            ];
+            lines.push(Line::from(content_spans));
+        }
     }
 
-    let mut bytes = Vec::new();
-    response.into_reader().take(10 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
+    let style = if is_cursor {
+        Style::default().bg(theme.bright_black)
+    } else {
+        Style::default()
+    };
 
-    image::load_from_memory(&bytes).ok()
+    let paragraph = Paragraph::new(lines)
+        .style(style)
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, area);
 }

@@ -1,16 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use image::DynamicImage;
 use ratatui::{
+    layout::Rect,
     style::Style,
     widgets::{Block, Borders, ListState},
 };
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 use tui_textarea::TextArea;
 
+use crate::highlight::Highlighter;
 use crate::theme::{Config, Theme};
 
 const WELCOME_NOTE_CONTENT: &str = r#"# Welcome to Ekphos
@@ -33,6 +36,8 @@ Use `Tab` to switch between panels.
 - `J/K` (Shift): Toggle floating cursor mode (view stays fixed)
 - `Tab`: Switch focus between panels
 - `Enter`: Jump to heading (in Outline) or open image (in Content)
+- `Space`: Toggle task checkbox or open link in browser
+- `]/[`: Next/previous link (when multiple links on same line)
 - `/`: Search notes (in Sidebar)
 - `?`: Show help dialog
 
@@ -106,6 +111,45 @@ Track your tasks with checkboxes! Press `Space` to toggle:
 - [ ] Another pending task
 - [x] This one is done too
 
+### Tables
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Headings | Done | H1-H6 |
+| Lists | Done | Bullets |
+| Tables | Done | New! |
+
+### Collapsible Details
+
+Use `<details>` for collapsible sections. Press `Space` to toggle:
+
+<details>
+<summary>Click to expand this section</summary>
+
+This content is hidden by default.
+
+You can include any text here, and it will be revealed when the details section is expanded.
+
+Use this for FAQs, spoilers, or optional information.
+</details>
+
+<details>
+<summary>Another collapsible section</summary>
+
+More hidden content here!
+</details>
+
+**Syntax example:**
+
+```html
+<details>
+<summary>Summary text here</summary>
+
+Your hidden content goes here.
+Multiple lines are supported.
+</details>
+```
+
 ### Blockquotes
 
 > This is a blockquote.
@@ -113,15 +157,35 @@ Track your tasks with checkboxes! Press `Space` to toggle:
 
 ### Code Blocks
 
+Code blocks support **syntax highlighting** for many languages:
+
 ```rust
+// Rust example with syntax highlighting
 fn main() {
-    println!("Hello, Ekphos!");
+    let message = "Hello, Ekphos!";
+    println!("{}", message);
+
+    for i in 0..5 {
+        println!("Count: {}", i);
+    }
 }
 ```
 
 ```python
-def greet():
-    return "Hello from Python"
+# Python also works
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+if __name__ == "__main__":
+    print(greet("World"))
+```
+
+```javascript
+// JavaScript too
+const greet = (name) => {
+    return `Hello, ${name}!`;
+};
+console.log(greet("Ekphos"));
 ```
 
 ### Horizontal Rules
@@ -139,11 +203,26 @@ Images can be embedded using standard markdown syntax:
 
 Both local files and remote URLs (http/https) are supported.
 
-Press `Enter` or `o` on an image line to open it in your system viewer.
+Click on an image or press `Enter`/`o` to open it in your system viewer.
 
 Supported formats: PNG, JPEG, GIF, WebP, BMP
 
 For inline preview, use a compatible terminal (iTerm2, Kitty, WezTerm, Sixel).
+
+### Links
+
+Links are rendered with special styling. Click or press `Space` to open in your browser:
+
+- Visit the [Ekphos Website](https://ekphos.xyz) for more information
+- Check out [GitHub](https://github.com) for the source code
+- Multiple links on one line: [Google](https://google.com) and [DuckDuckGo](https://duckduckgo.com)
+
+**Keyboard navigation:**
+- `Space`: Open the selected link
+- `]`: Next link (when multiple links on same line)
+- `[`: Previous link
+
+The selected link is highlighted with a yellow background.
 
 ## CLI Options
 
@@ -236,6 +315,8 @@ pub enum ContentItem {
     CodeLine(String),
     CodeFence(String),
     TaskItem { text: String, checked: bool, line_index: usize },
+    TableRow { cells: Vec<String>, is_separator: bool, is_header: bool, column_widths: Vec<usize> },
+    Details { summary: String, content_lines: Vec<String>, id: usize },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -283,6 +364,9 @@ pub struct App<'a> {
     pub picker: Option<Picker>,
     pub image_cache: HashMap<String, DynamicImage>,
     pub current_image: Option<ImageState>,
+    pub pending_images: HashSet<String>,
+    pub image_sender: Sender<(String, DynamicImage)>,
+    pub image_receiver: Receiver<(String, DynamicImage)>,
     pub show_welcome: bool,
     pub outline: Vec<OutlineItem>,
     pub outline_state: ListState,
@@ -308,7 +392,13 @@ pub struct App<'a> {
     pub folder_states: HashMap<PathBuf, bool>,
     pub target_folder: Option<PathBuf>,
     pub dialog_error: Option<String>,
-    pub search_matched_notes: Vec<usize>, 
+    pub search_matched_notes: Vec<usize>,
+    pub content_area: Rect,
+    pub mouse_hover_item: Option<usize>,
+    pub content_item_rects: Vec<(usize, Rect)>,
+    pub selected_link_index: usize,
+    pub details_open_states: HashMap<usize, bool>,
+    pub highlighter: Highlighter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -329,6 +419,7 @@ impl<'a> App<'a> {
         let is_first_launch = !config_exists;
 
         let theme = Theme::from_name(&config.theme);
+        let syntax_theme = config.syntax_theme.clone();
 
         let mut list_state = ListState::default();
         list_state.select(Some(0));
@@ -373,6 +464,8 @@ impl<'a> App<'a> {
 
         let input_buffer = config.notes_dir.clone();
 
+        let (image_sender, image_receiver) = mpsc::channel();
+
         let mut app = Self {
             notes: Vec::new(),
             selected_note: 0,
@@ -383,6 +476,9 @@ impl<'a> App<'a> {
             picker,
             image_cache: HashMap::new(),
             current_image: None,
+            pending_images: HashSet::new(),
+            image_sender,
+            image_receiver,
             show_welcome: !is_first_launch && config.welcome_shown && notes_dir_exists && !notes_dir_empty,
             outline: Vec::new(),
             outline_state: ListState::default(),
@@ -409,6 +505,12 @@ impl<'a> App<'a> {
             target_folder: None,
             dialog_error: None,
             search_matched_notes: Vec::new(),
+            content_area: Rect::default(),
+            mouse_hover_item: None,
+            content_item_rects: Vec::new(),
+            selected_link_index: 0,
+            details_open_states: HashMap::new(),
+            highlighter: Highlighter::new(&syntax_theme),
         };
 
         if !is_first_launch && notes_dir_exists {
@@ -684,6 +786,7 @@ impl<'a> App<'a> {
 
             self.update_outline();
             self.update_content_items();
+            self.focus = Focus::Content;
         }
 
         self.target_folder = None;
@@ -968,19 +1071,26 @@ impl<'a> App<'a> {
         let content = self.current_note().map(|n| n.content.clone());
         if let Some(content) = content {
             let mut in_code_block = false;
+            let lines: Vec<&str> = content.lines().collect();
+            let mut i = 0;
 
-            for (line_index, line) in content.lines().enumerate() {
+            while i < lines.len() {
+                let line = lines[i];
+                let line_index = i;
+
                 // Check for code fence
                 if line.starts_with("```") {
                     let lang = line.trim_start_matches('`').to_string();
                     self.content_items.push(ContentItem::CodeFence(lang));
                     in_code_block = !in_code_block;
+                    i += 1;
                     continue;
                 }
 
                 // If inside code block, add as CodeLine
                 if in_code_block {
                     self.content_items.push(ContentItem::CodeLine(line.to_string()));
+                    i += 1;
                     continue;
                 }
 
@@ -991,6 +1101,7 @@ impl<'a> App<'a> {
                             let path = &line[start + 2..start + end];
                             if !path.is_empty() {
                                 self.content_items.push(ContentItem::Image(path.to_string()));
+                                i += 1;
                                 continue;
                             }
                         }
@@ -1002,10 +1113,118 @@ impl<'a> App<'a> {
                     let checked = trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ");
                     let text = trimmed[6..].to_string();
                     self.content_items.push(ContentItem::TaskItem { text, checked, line_index });
+                    i += 1;
+                    continue;
+                }
+
+                let trimmed_line = line.trim();
+                if trimmed_line.starts_with("<details") && (trimmed_line.ends_with(">") || trimmed_line.contains("><")) {
+                    let details_start_line = line_index;
+                    let mut summary = String::new();
+                    let mut content_lines: Vec<String> = Vec::new();
+                    let mut found_end = false;
+                    i += 1;
+
+                    while i < lines.len() {
+                        let dline = lines[i].trim();
+
+                        if dline.contains("</details>") {
+                            found_end = true;
+                            i += 1;
+                            break;
+                        }
+
+                        if dline.starts_with("<summary>") || dline.contains("<summary>") {
+                            if dline.contains("</summary>") {
+                                if let Some(start) = dline.find("<summary>") {
+                                    if let Some(end) = dline.find("</summary>") {
+                                        summary = dline[start + 9..end].trim().to_string();
+                                    }
+                                }
+                            } else {
+                                summary = dline.trim_start_matches("<summary>").trim().to_string();
+                            }
+                            i += 1;
+                            continue;
+                        }
+
+                        if dline == "</summary>" {
+                            i += 1;
+                            continue;
+                        }
+
+                        content_lines.push(lines[i].to_string());
+                        i += 1;
+                    }
+
+                    if found_end {
+                        if summary.is_empty() {
+                            summary = "Details".to_string();
+                        }
+                        self.content_items.push(ContentItem::Details {
+                            summary,
+                            content_lines,
+                            id: details_start_line,
+                        });
+                        continue;
+                    } else {
+                        self.content_items.push(ContentItem::TextLine(line.to_string()));
+                        continue;
+                    }
+                }
+
+                if trimmed_line.starts_with('|') && trimmed_line.ends_with('|') {
+                    let mut table_rows: Vec<(Vec<String>, bool)> = Vec::new();
+
+                    while i < lines.len() {
+                        let tline = lines[i].trim();
+                        if tline.starts_with('|') && tline.ends_with('|') {
+                            let inner = &tline[1..tline.len()-1];
+                            let cells: Vec<String> = inner.split('|').map(|s| s.trim().to_string()).collect();
+                            let is_separator = cells.iter().all(|cell| {
+                                let c = cell.trim();
+                                !c.is_empty() && c.chars().all(|ch| ch == '-' || ch == ':')
+                            });
+                            table_rows.push((cells, is_separator));
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    let num_cols = table_rows.iter().map(|(cells, _)| cells.len()).max().unwrap_or(0);
+                    let mut column_widths: Vec<usize> = vec![0; num_cols];
+
+                    for (cells, is_sep) in &table_rows {
+                        if !is_sep {
+                            for (col_idx, cell) in cells.iter().enumerate() {
+                                if col_idx < column_widths.len() {
+                                    column_widths[col_idx] = column_widths[col_idx].max(cell.chars().count());
+                                }
+                            }
+                        }
+                    }
+
+                    for w in &mut column_widths {
+                        *w = (*w).max(3);
+                    }
+
+                    let separator_idx = table_rows.iter().position(|(_, is_sep)| *is_sep);
+
+                    for (row_idx, (cells, is_separator)) in table_rows.into_iter().enumerate() {
+                        let is_header = separator_idx.map(|sep_idx| row_idx < sep_idx).unwrap_or(false);
+                        self.content_items.push(ContentItem::TableRow {
+                            cells,
+                            is_separator,
+                            is_header,
+                            column_widths: column_widths.clone(),
+                        });
+                    }
                     continue;
                 }
 
                 self.content_items.push(ContentItem::TextLine(line.to_string()));
+                i += 1;
             }
         }
         self.content_cursor = 0;
@@ -1017,12 +1236,14 @@ impl<'a> App<'a> {
         }
         if self.content_cursor < self.content_items.len() - 1 {
             self.content_cursor += 1;
+            self.selected_link_index = 0; // Reset link selection when moving lines
         }
     }
 
     pub fn previous_content_line(&mut self) {
         if self.content_cursor > 0 {
             self.content_cursor -= 1;
+            self.selected_link_index = 0; // Reset link selection when moving lines
         }
     }
 
@@ -1037,6 +1258,7 @@ impl<'a> App<'a> {
 
         if self.content_cursor < self.content_items.len() - 1 {
             self.content_cursor += 1;
+            self.selected_link_index = 0;
         }
     }
 
@@ -1047,6 +1269,7 @@ impl<'a> App<'a> {
 
         if self.content_cursor > 0 {
             self.content_cursor -= 1;
+            self.selected_link_index = 0;
         }
     }
 
@@ -1085,6 +1308,16 @@ impl<'a> App<'a> {
         }
     }
 
+    pub fn toggle_current_details(&mut self) {
+        if let Some(item) = self.content_items.get(self.content_cursor) {
+            if let ContentItem::Details { id, .. } = item {
+                let id = *id;
+                let current = self.details_open_states.get(&id).copied().unwrap_or(false);
+                self.details_open_states.insert(id, !current);
+            }
+        }
+    }
+
     pub fn sync_outline_to_content(&mut self) {
         if self.outline.is_empty() {
             return;
@@ -1109,6 +1342,186 @@ impl<'a> App<'a> {
             Some(path)
         } else {
             None
+        }
+    }
+
+    pub fn current_item_link(&self) -> Option<String> {
+        let links = self.item_links_at(self.content_cursor);
+        if links.is_empty() {
+            return None;
+        }
+        let idx = self.selected_link_index.min(links.len().saturating_sub(1));
+        links.get(idx).map(|(_, url, _, _)| url.clone())
+    }
+
+    pub fn current_line_link_count(&self) -> usize {
+        self.item_links_at(self.content_cursor).len()
+    }
+
+    pub fn next_link(&mut self) {
+        let link_count = self.current_line_link_count();
+        if link_count > 1 {
+            self.selected_link_index = (self.selected_link_index + 1) % link_count;
+        }
+    }
+
+    pub fn previous_link(&mut self) {
+        let link_count = self.current_line_link_count();
+        if link_count > 1 {
+            if self.selected_link_index == 0 {
+                self.selected_link_index = link_count - 1;
+            } else {
+                self.selected_link_index -= 1;
+            }
+        }
+    }
+
+    pub fn item_link_at(&self, index: usize) -> Option<String> {
+        self.item_links_at(index).first().map(|(_, url, _, _)| url.clone())
+    }
+
+    /// Extract all links from a specific content item as (text, url, start_col, end_col) tuples
+    /// The columns are character positions in the rendered line (after prefix like "▶ " or "• ")
+    pub fn item_links_at(&self, index: usize) -> Vec<(String, String, usize, usize)> {
+        let text = match self.content_items.get(index) {
+            Some(ContentItem::TextLine(line)) => line.as_str(),
+            Some(ContentItem::TaskItem { text, .. }) => text.as_str(),
+            _ => return Vec::new(),
+        };
+
+        let mut links = Vec::new();
+        let mut search_start = 0;
+
+        while search_start < text.len() {
+            let remaining = &text[search_start..];
+            if let Some(bracket_pos) = remaining.find('[') {
+                let abs_bracket_pos = search_start + bracket_pos;
+                let from_bracket = &text[abs_bracket_pos..];
+
+                if let Some(bracket_end) = from_bracket.find("](") {
+                    let after_bracket = &from_bracket[bracket_end + 2..];
+                    if let Some(paren_end) = after_bracket.find(')') {
+                        let link_text = &from_bracket[1..bracket_end];
+                        let url = &after_bracket[..paren_end];
+
+                        if !url.is_empty() {
+                            let rendered_start = Self::calc_rendered_pos(text, abs_bracket_pos);
+                            let rendered_end = rendered_start + link_text.chars().count();
+
+                            links.push((
+                                link_text.to_string(),
+                                url.to_string(),
+                                rendered_start,
+                                rendered_end,
+                            ));
+                        }
+
+                        search_start = abs_bracket_pos + bracket_end + 2 + paren_end + 1;
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+
+        links
+    }
+
+    fn calc_rendered_pos(text: &str, target_pos: usize) -> usize {
+        let mut rendered_pos = 0;
+        let mut i = 0;
+
+        while i < target_pos && i < text.len() {
+            let remaining = &text[i..];
+            if remaining.starts_with('[') {
+                if let Some(bracket_end) = remaining.find("](") {
+                    let after_bracket = &remaining[bracket_end + 2..];
+                    if let Some(paren_end) = after_bracket.find(')') {
+                        let link_text = &remaining[1..bracket_end];
+                        let full_link_len = bracket_end + 2 + paren_end + 1;
+
+                        if i + full_link_len <= target_pos {
+                            rendered_pos += link_text.chars().count();
+                            i += full_link_len;
+                            continue;
+                        } else {
+                            break;
+                        }
+                    }
+                }
+            }
+            rendered_pos += 1;
+            i += remaining.chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        }
+
+        rendered_pos
+    }
+
+    /// find which link was clicked based on column position within the content area
+    /// Returns the URL if a link was clicked, None otherwise
+    /// `col` is the column relative to the content area start
+    pub fn find_clicked_link(&self, index: usize, col: u16, content_x: u16) -> Option<String> {
+        let links = self.item_links_at(index);
+        if links.is_empty() {
+            return None;
+        }
+
+        let prefix_len = self.get_line_prefix_len(index);
+        let click_col = (col.saturating_sub(content_x)) as usize;
+
+        for (_, url, start, end) in &links {
+            let adjusted_start = prefix_len + *start;
+            let adjusted_end = prefix_len + *end;
+            if click_col >= adjusted_start && click_col < adjusted_end {
+                return Some(url.clone());
+            }
+        }
+
+        links.first().map(|(_, url, _, _)| url.clone())
+    }
+
+    fn get_line_prefix_len(&self, index: usize) -> usize {
+        match self.content_items.get(index) {
+            Some(ContentItem::TextLine(line)) => {
+                let mut len = 2; 
+                if line.starts_with("- ") || line.starts_with("* ") {
+                    len += 2; 
+                }
+                len
+            }
+            Some(ContentItem::TaskItem { .. }) => 6, 
+            _ => 2,
+        }
+    }
+
+    pub fn item_is_image_at(&self, index: usize) -> Option<&str> {
+        if let Some(ContentItem::Image(path)) = self.content_items.get(index) {
+            Some(path)
+        } else {
+            None
+        }
+    }
+
+    pub fn item_is_details_at(&self, index: usize) -> bool {
+        matches!(self.content_items.get(index), Some(ContentItem::Details { .. }))
+    }
+
+    pub fn toggle_details_at(&mut self, index: usize) {
+        if let Some(ContentItem::Details { id, .. }) = self.content_items.get(index) {
+            let id = *id;
+            let current = self.details_open_states.get(&id).copied().unwrap_or(false);
+            self.details_open_states.insert(id, !current);
+        }
+    }
+
+    pub fn open_current_link(&self) {
+        if let Some(url) = self.current_item_link() {
+            #[cfg(target_os = "macos")]
+            let _ = Command::new("open").arg(&url).spawn();
+            #[cfg(target_os = "linux")]
+            let _ = Command::new("xdg-open").arg(&url).spawn();
+            #[cfg(target_os = "windows")]
+            let _ = Command::new("cmd").args(["/c", "start", "", &url]).spawn();
         }
     }
 
@@ -1423,6 +1836,56 @@ impl<'a> App<'a> {
             false
         }
     }
+
+    pub fn poll_pending_images(&mut self) {
+        while let Ok((url, img)) = self.image_receiver.try_recv() {
+            self.pending_images.remove(&url);
+            self.image_cache.insert(url, img);
+        }
+    }
+
+    pub fn is_image_pending(&self, url: &str) -> bool {
+        self.pending_images.contains(url)
+    }
+
+    pub fn start_remote_image_fetch(&mut self, url: &str) {
+        if self.pending_images.contains(url) || self.image_cache.contains_key(url) {
+            return;
+        }
+
+        self.pending_images.insert(url.to_string());
+        let url_owned = url.to_string();
+        let sender = self.image_sender.clone();
+
+        std::thread::spawn(move || {
+            if let Some(img) = fetch_remote_image_blocking(&url_owned) {
+                let _ = sender.send((url_owned, img));
+            }
+        });
+    }
+}
+
+fn fetch_remote_image_blocking(url: &str) -> Option<DynamicImage> {
+    use std::io::Read;
+
+    let response = ureq::get(url)
+        .set("User-Agent", "ekphos/0.4")
+        .call()
+        .ok()?;
+
+    let content_type = response
+        .header("Content-Type")
+        .unwrap_or("")
+        .to_lowercase();
+
+    if !content_type.starts_with("image/") {
+        return None;
+    }
+
+    let mut bytes = Vec::new();
+    response.into_reader().take(10 * 1024 * 1024).read_to_end(&mut bytes).ok()?;
+
+    image::load_from_memory(&bytes).ok()
 }
 
 impl Default for App<'_> {

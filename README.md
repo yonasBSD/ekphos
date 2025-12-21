@@ -11,49 +11,53 @@ An open source, lightweight, fast, terminal-based markdown research tool built w
 ## Table of Contents
 
 - [Getting Started](#getting-started)
-    - [Requirements](#requirements)
-    - [Installation](#installation)
-      - [Using Cargo (Recommended)](#using-cargo-recommended)
-      - [Using Make](#using-make)
-      - [Using Docker](#using-docker)
-    - [Update](#update)
-    - [Uninstall](#uninstall)
-    - [CLI Options](#cli-options)
-  - [Configuration](#configuration)
-    - [Config File](#config-file)
-    - [Themes](#themes)
-      - [Bundled Theme](#bundled-theme)
-      - [Using Alacritty Themes](#using-alacritty-themes)
-      - [Custom Themes](#custom-themes)
-  - [Usage](#usage)
-    - [Layout](#layout)
-    - [Creating Notes](#creating-notes)
-    - [Creating Folders](#creating-folders)
-    - [Renaming](#renaming)
-    - [Deleting](#deleting)
-    - [Searching Notes](#searching-notes)
-    - [Editing Notes](#editing-notes)
-    - [Markdown Support](#markdown-support)
-    - [Images](#images)
-      - [Adding Images](#adding-images)
-      - [Viewing Images](#viewing-images)
-      - [Terminal Image Support](#terminal-image-support)
-    - [Using the Outline](#using-the-outline)
-  - [Keyboard Shortcuts](#keyboard-shortcuts)
-    - [Global](#global)
-    - [Sidebar](#sidebar)
-    - [Content View](#content-view)
-    - [Edit Mode](#edit-mode)
-      - [Normal Mode](#normal-mode)
-      - [Delete Commands Flow](#delete-commands-flow)
-    - [Visual Mode](#visual-mode)
-  - [Contributing](#contributing)
-    - [Development Setup](#development-setup)
-    - [Branch Strategy](#branch-strategy)
-    - [Workflow](#workflow)
-  - [Disclaimer](#disclaimer)
-  - [Socials](#socials)
-  - [License](#license)
+  - [Requirements](#requirements)
+  - [Installation](#installation)
+    - [Using Cargo (Recommended)](#using-cargo-recommended)
+    - [Using Make](#using-make)
+    - [Using Docker](#using-docker)
+  - [Update](#update)
+  - [Uninstall](#uninstall)
+  - [CLI Options](#cli-options)
+- [Configuration](#configuration)
+  - [Config File](#config-file)
+  - [Themes](#themes)
+    - [Bundled Theme](#bundled-theme)
+    - [Using Alacritty Themes](#using-alacritty-themes)
+    - [Custom Themes](#custom-themes)
+- [Usage](#usage)
+  - [Layout](#layout)
+  - [Folder Tree](#folder-tree)
+  - [Creating Notes](#creating-notes)
+  - [Creating Folders](#creating-folders)
+  - [Renaming](#renaming)
+  - [Deleting](#deleting)
+  - [Searching Notes](#searching-notes)
+  - [Editing Notes](#editing-notes)
+  - [Markdown Support](#markdown-support)
+  - [Syntax Highlighting](#syntax-highlighting)
+  - [Images](#images)
+    - [Adding Images](#adding-images)
+    - [Viewing Images](#viewing-images)
+    - [Terminal Image Support](#terminal-image-support)
+  - [Links](#links)
+  - [Collapsible Details](#collapsible-details)
+  - [Using the Outline](#using-the-outline)
+- [Keyboard Shortcuts](#keyboard-shortcuts)
+  - [Global](#global)
+  - [Sidebar](#sidebar)
+  - [Content View](#content-view)
+  - [Edit Mode](#edit-mode)
+    - [Normal Mode](#normal-mode)
+    - [Delete Commands Flow](#delete-commands-flow)
+  - [Visual Mode](#visual-mode)
+- [Contributing](#contributing)
+  - [Development Setup](#development-setup)
+  - [Branch Strategy](#branch-strategy)
+  - [Workflow](#workflow)
+- [Disclaimer](#disclaimer)
+- [Socials](#socials)
+- [License](#license)
 
 ## Getting Started
 
@@ -138,6 +142,7 @@ notes_dir = "~/Documents/ekphos"
 welcome_shown = false
 theme = "catppuccin-mocha"
 show_empty_dir = true
+syntax_theme = "base16-ocean.dark"
 ```
 
 | Setting          | Description                            | Default              |
@@ -146,6 +151,7 @@ show_empty_dir = true
 | `welcome_shown`  | Show welcome dialog on startup         | `true`               |
 | `theme`          | Theme name (without .toml extension)   | `catppuccin-mocha`   |
 | `show_empty_dir` | Show folders that contain no .md files | `true`               |
+| `syntax_theme`   | Syntax highlighting theme for code     | `base16-ocean.dark`  |
 
 > **Note:** This configuration format requires v0.3.0 or later.
 
@@ -236,6 +242,15 @@ Ekphos has three panels:
 
 Use `Tab` or `Shift+Tab` to switch between panels.
 
+### Folder Tree
+
+The sidebar displays a hierarchical folder tree that automatically detects subdirectories containing `.md` files:
+
+- Folders are shown with `▶` (collapsed) or `▼` (expanded) icons
+- Press `Enter` on a folder to toggle expand/collapse
+- Folders and notes are sorted alphabetically together
+- Folders start collapsed by default
+
 ### Creating Notes
 
 1. Press `n` to create a new note
@@ -295,20 +310,59 @@ Notes are stored as `.md` files in your configured notes directory.
 
 ### Markdown Support
 
-| Syntax           | Rendered As          |
-| ---------------- | -------------------- |
-| `# Heading`      | ◆ HEADING (blue)     |
-| `## Heading`     | ■ Heading (green)    |
-| `### Heading`    | ▸ Heading (yellow)   |
-| `#### Heading`   | › Heading (mauve)    |
-| `##### Heading`  | Heading (teal)       |
-| `###### Heading` | _Heading_ (subtle)   |
-| `- item`         | • item               |
-| `- [ ] task`     | [ ] task (unchecked) |
-| `- [x] task`     | [x] task (checked)   |
-| `` `code` ``     | Inline code (green)  |
-| ` ``` `          | Code block           |
-| `![alt](path)`   | Inline image         |
+| Syntax           | Rendered As                  |
+| ---------------- | ---------------------------- |
+| `# Heading`      | ◆ HEADING (blue)             |
+| `## Heading`     | ■ Heading (green)            |
+| `### Heading`    | ▸ Heading (yellow)           |
+| `#### Heading`   | › Heading (mauve)            |
+| `##### Heading`  | Heading (teal)               |
+| `###### Heading` | _Heading_ (subtle)           |
+| `- item`         | • item                       |
+| `- [ ] task`     | [ ] task (unchecked)         |
+| `- [x] task`     | [x] task (checked)           |
+| `` `code` ``     | Inline code (green)          |
+| ` ```lang `      | Syntax-highlighted code      |
+| `![alt](path)`   | Inline image                 |
+| `[text](url)`    | Clickable link (cyan)        |
+| `\| table \|`    | Formatted table              |
+| `<details>`      | Collapsible dropdown (cyan)  |
+
+### Syntax Highlighting
+
+Code blocks with a language specifier are syntax-highlighted using [syntect](https://github.com/trishume/syntect):
+
+````markdown
+```rust
+fn main() {
+    let message = "Hello, Ekphos!";
+    println!("{}", message);
+}
+```
+````
+
+**Supported languages:** Rust, Python, JavaScript, TypeScript, Go, C, C++, Java, Ruby, PHP, Shell, SQL, HTML, CSS, JSON, YAML, Markdown, and [many more](https://github.com/sublimehq/Packages).
+
+Code blocks without a language specifier render in a uniform green color.
+
+**Available syntax themes:**
+
+| Theme                  | Description                 |
+| ---------------------- | --------------------------- |
+| `base16-ocean.dark`    | Dark ocean theme (default)  |
+| `base16-ocean.light`   | Light ocean theme           |
+| `base16-eighties.dark` | Dark 80s retro theme        |
+| `base16-mocha.dark`    | Dark mocha theme            |
+| `InspiredGitHub`       | GitHub-inspired light theme |
+| `Solarized (dark)`     | Solarized dark theme        |
+| `Solarized (light)`    | Solarized light theme       |
+
+Set in config:
+
+```toml
+# ~/.config/ekphos/config.toml
+syntax_theme = "base16-mocha.dark"
+```
 
 ### Images
 
@@ -330,7 +384,7 @@ Both local files and remote URLs (http/https) are supported.
 #### Viewing Images
 
 1. Navigate to the image line in content view
-2. Press `Enter` or `o` to open in system viewer
+2. Click on the image or press `Enter`/`o` to open in system viewer
 
 #### Terminal Image Support
 
@@ -341,6 +395,50 @@ For inline image preview, use a compatible terminal:
 - WezTerm
 - Ghostty
 - Sixel-enabled terminals
+
+### Links
+
+Markdown links are rendered with underlined cyan text:
+
+```markdown
+[Ekphos Website](https://ekphos.xyz)
+[GitHub](https://github.com)
+```
+
+**Opening links:**
+
+- Click on a link to open in your default browser
+- Or navigate to the line and press `Space`
+- Hover over a link to see the "Open ↗" hint
+
+**Multiple links on same line:**
+
+- Use `]` to select next link, `[` to select previous
+- Selected link is highlighted with yellow background
+- `Space` opens the currently selected link
+
+### Collapsible Details
+
+Use HTML `<details>` tags for collapsible/expandable sections:
+
+```markdown
+<details>
+<summary>Click to expand</summary>
+
+Hidden content goes here.
+This can include multiple lines.
+
+</details>
+```
+
+**Usage:**
+
+- Click on the details line to toggle open/close
+- Or navigate with keyboard and press `Space`
+- When collapsed, shows `▶` indicator
+- When expanded, shows `▼` indicator with content below
+
+Use cases: FAQs, spoilers, optional information, long code examples.
 
 ### Using the Outline
 
@@ -379,12 +477,14 @@ The outline panel shows all headings in your note:
 
 ### Content View
 
-| Key         | Action                      |
-| ----------- | --------------------------- |
-| `j/k`       | Navigate lines              |
-| `Shift+J/K` | Toggle floating cursor mode |
-| `Space`     | Toggle task checkbox        |
-| `Enter/o`   | Open image in system viewer |
+| Key         | Action                                     |
+| ----------- | ------------------------------------------ |
+| `j/k`       | Navigate lines                             |
+| `Shift+J/K` | Toggle floating cursor mode                |
+| `Space`     | Toggle task / details dropdown / Open link |
+| `]/[`       | Next/previous link (multi-link lines)      |
+| `Enter/o`   | Open image in system viewer                |
+| `Click`     | Open link or image                         |
 
 **Floating Cursor Mode:** When enabled (yellow border, `[FLOAT]` indicator), the cursor moves freely within the visible area. The view only scrolls when the cursor reaches the top or bottom edge. Toggle with `Shift+J` or `Shift+K`.
 

@@ -15,6 +15,8 @@ pub struct Config {
     pub theme: String,
     #[serde(default = "default_show_empty_dir")]
     pub show_empty_dir: bool,
+    #[serde(default = "default_syntax_theme")]
+    pub syntax_theme: String,
 }
 
 fn default_notes_dir() -> String {
@@ -33,13 +35,18 @@ fn default_theme_name() -> String {
     "catppuccin-mocha".to_string()
 }
 
+fn default_syntax_theme() -> String {
+    "base16-ocean.dark".to_string()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             notes_dir: default_notes_dir(),
             welcome_shown: default_welcome_shown(),
             theme: default_theme_name(),
-            show_empty_dir: default_show_empty_dir()
+            show_empty_dir: default_show_empty_dir(),
+            syntax_theme: default_syntax_theme(),
         }
     }
 }
