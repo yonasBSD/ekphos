@@ -16,7 +16,7 @@ use crate::editor::Editor;
 use crate::highlight::Highlighter;
 use crate::config::{Config, Theme};
 
-const WELCOME_NOTE_CONTENT: &str = r#"# Welcome to Ekphos
+const GETTING_STARTED_CONTENT: &str = r#"# Getting Started
 
 A lightweight, fast, terminal-based markdown research tool built with Rust.
 
@@ -36,7 +36,7 @@ Use `Tab` to switch between panels.
 - `J/K` (Shift): Toggle floating cursor mode (view stays fixed)
 - `Tab`: Switch focus between panels
 - `Enter`: Jump to heading (in Outline) or open image (in Content)
-- `Space`: Toggle task checkbox or open link in browser
+- `Space`: Toggle task checkbox, open link, or navigate wikilink
 - `]/[`: Next/previous link (when multiple links on same line)
 - `/`: Search notes (in Sidebar)
 - `?`: Show help dialog
@@ -78,6 +78,19 @@ Use `Tab` to switch between panels.
 - `Ctrl+s`: Save and exit edit mode
 
 ## Markdown Support
+
+### Wikilinks
+
+Connect your notes using wikilinks! Just type `[[Note Name]]` to link to another note.
+
+- Link to the demo note: [[Demo Note]]
+- Valid links appear in cyan, invalid links in red
+- Press `Space` on a wikilink to navigate to that note
+- In edit mode, type `[[` to get autocomplete suggestions
+
+**Creating notes from wikilinks:**
+
+If you link to a note that doesn't exist (like [[New Ideas]]), pressing `Space` will offer to create it!
 
 ### Headings
 
@@ -258,6 +271,34 @@ Custom themes can be added to `~/.config/ekphos/themes/`
 ---
 
 Press `q` to quit. Happy note-taking!"#;
+
+const DEMO_NOTE_CONTENT: &str = r#"# Demo Note
+
+This is a demo note to showcase wikilinks!
+
+## About Wikilinks
+
+Wikilinks let you connect your notes together, creating a personal knowledge base.
+
+You can link back to [[Getting Started]] to see the main documentation.
+
+## Ideas
+
+Here are some ways to use wikilinks:
+
+- Create a **daily notes** system with links between days
+- Build a **zettelkasten** for research and learning
+- Organize **project notes** with interconnected topics
+- Make a **personal wiki** for anything you want to remember
+
+## Try It Out
+
+1. Press `e` to enter edit mode
+2. Type `[[` to see autocomplete suggestions
+3. Create new notes by linking to names that don't exist yet
+4. Press `Space` on any wikilink to navigate
+
+Happy linking!"#;
 
 #[derive(Debug, Clone)]
 pub struct Note {
@@ -834,20 +875,31 @@ impl App {
         }
     }
 
-    fn create_welcome_note(&mut self) {
-        let content = WELCOME_NOTE_CONTENT.to_string();
-
+    fn create_welcome_notes(&mut self) {
         let notes_path = self.config.notes_path();
-        let file_path = notes_path.join("Welcome.md");
+
+        let demo_content = DEMO_NOTE_CONTENT.to_string();
+        let demo_path = notes_path.join("Demo Note.md");
+        let _ = fs::write(&demo_path, &demo_content);
+
+        self.notes.push(Note {
+            title: "Demo Note".to_string(),
+            content: demo_content,
+            file_path: Some(demo_path),
+        });
+
+        let content = GETTING_STARTED_CONTENT.to_string();
+        let file_path = notes_path.join("Getting Started.md");
         let _ = fs::write(&file_path, &content);
 
         self.notes.push(Note {
-            title: "Welcome".to_string(),
+            title: "Getting Started".to_string(),
             content,
             file_path: Some(file_path),
         });
-        self.selected_note = 0;
-        self.list_state.select(Some(0));
+
+        self.selected_note = 1;
+        self.list_state.select(Some(1));
         self.update_content_items();
         self.update_outline();
     }
@@ -1109,9 +1161,8 @@ impl App {
         self.dialog = DialogState::None;
         self.load_notes_from_dir();
 
-        // Create welcome note only on first launch
         if self.notes.is_empty() {
-            self.create_welcome_note();
+            self.create_welcome_notes();
         }
 
         self.show_welcome = true;
