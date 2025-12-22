@@ -12,7 +12,7 @@ use ratatui::{
 };
 use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 
-use crate::editor::{CursorMove, Editor};
+use crate::editor::Editor;
 use crate::highlight::Highlighter;
 use crate::theme::{Config, Theme};
 
@@ -1812,13 +1812,21 @@ impl App {
     pub fn enter_edit_mode(&mut self) {
         if let Some(note) = self.current_note() {
             let lines: Vec<String> = note.content.lines().map(String::from).collect();
-            let target_row = self.content_cursor.min(lines.len().saturating_sub(1));
+            let line_count = lines.len();
+            let target_row = self.content_cursor.min(line_count.saturating_sub(1));
+
+            let preview_scroll_top = self.content_scroll_offset.saturating_sub(1);
+            let cursor_offset_from_top = self.content_cursor.saturating_sub(preview_scroll_top);
+
             self.editor = Editor::new(lines);
             self.vim_mode = VimMode::Normal;
-            self.editor_scroll_top = 0;
-            for _ in 0..target_row {
-                self.editor.move_cursor(CursorMove::Down);
-            }
+
+            self.editor.set_cursor(target_row, 0);
+
+            let editor_scroll = target_row.saturating_sub(cursor_offset_from_top);
+            self.editor.set_scroll_offset(editor_scroll.min(line_count.saturating_sub(1)));
+            self.editor_scroll_top = self.editor.scroll_offset();
+
             self.update_editor_block();
             self.mode = Mode::Edit;
             self.focus = Focus::Content;
@@ -1871,6 +1879,10 @@ impl App {
 
     pub fn save_edit(&mut self) {
         let (cursor_row, _) = self.editor.cursor();
+        let editor_scroll = self.editor.scroll_offset();
+
+        let cursor_offset_from_top = cursor_row.saturating_sub(editor_scroll);
+
         if let Some(note) = self.notes.get_mut(self.selected_note) {
             note.content = self.editor.lines().join("\n");
             // Save to file
@@ -1881,13 +1893,22 @@ impl App {
         self.mode = Mode::Normal;
         self.update_outline();
         self.update_content_items();
+
         self.content_cursor = cursor_row.min(self.content_items.len().saturating_sub(1));
+        let preview_scroll = self.content_cursor.saturating_sub(cursor_offset_from_top);
+        self.content_scroll_offset = preview_scroll + 1; 
     }
 
     pub fn cancel_edit(&mut self) {
         let (cursor_row, _) = self.editor.cursor();
+        let editor_scroll = self.editor.scroll_offset();
+
+        let cursor_offset_from_top = cursor_row.saturating_sub(editor_scroll);
         self.mode = Mode::Normal;
+
         self.content_cursor = cursor_row.min(self.content_items.len().saturating_sub(1));
+        let preview_scroll = self.content_cursor.saturating_sub(cursor_offset_from_top);
+        self.content_scroll_offset = preview_scroll + 1;
     }
 
     pub fn has_unsaved_changes(&self) -> bool {

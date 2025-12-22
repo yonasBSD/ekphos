@@ -101,6 +101,15 @@ impl Editor {
         (pos.row, pos.col)
     }
 
+    pub fn set_cursor(&mut self, row: usize, col: usize) {
+        let line_count = self.buffer.line_count();
+        let safe_row = row.min(line_count.saturating_sub(1));
+        let line_len = self.buffer.line_len(safe_row);
+        let safe_col = col.min(line_len);
+        self.cursor.move_to(safe_row, safe_col);
+        self.ensure_cursor_visible();
+    }
+
     pub fn move_cursor(&mut self, movement: CursorMove) {
         let pos = self.cursor.pos();
         let line_count = self.buffer.line_count();
@@ -528,13 +537,34 @@ impl Editor {
     // Scrolling
     pub fn update_scroll(&mut self, view_height: usize) {
         self.view_height = view_height;
+        if view_height == 0 {
+            return;
+        }
+
         let (cursor_row, cursor_col) = self.cursor();
+        let line_count = self.buffer.line_count();
 
         if cursor_row < self.scroll_offset {
             self.scroll_offset = cursor_row;
-        } else if cursor_row >= self.scroll_offset + view_height {
-            self.scroll_offset = cursor_row - view_height + 1;
         }
+
+        if self.line_wrap_enabled && self.view_width > 0 {
+            while self.scroll_offset < cursor_row {
+                let visual_lines = self.visual_lines_in_range(self.scroll_offset, cursor_row);
+                if visual_lines <= view_height {
+                    break;
+                }
+                self.scroll_offset += 1;
+            }
+        } else {
+            if cursor_row >= self.scroll_offset + view_height {
+                self.scroll_offset = cursor_row.saturating_sub(view_height.saturating_sub(1));
+            }
+        }
+
+        // Clamp to valid range
+        let max_scroll = line_count.saturating_sub(1);
+        self.scroll_offset = self.scroll_offset.min(max_scroll);
 
         if self.view_width > 0 {
             let effective_width = self.view_width.saturating_sub(1);
@@ -544,6 +574,22 @@ impl Editor {
                 self.h_scroll_offset = cursor_col.saturating_sub(effective_width) + 1;
             }
         }
+    }
+
+    fn visual_lines_in_range(&self, start_row: usize, end_row: usize) -> usize {
+        let width = self.view_width.max(1);
+        let mut visual_lines = 0;
+
+        for row in start_row..=end_row.min(self.buffer.line_count().saturating_sub(1)) {
+            let line_len = self.buffer.line_len(row);
+            if line_len == 0 {
+                visual_lines += 1;
+            } else {
+                visual_lines += (line_len + width - 1) / width;
+            }
+        }
+
+        visual_lines
     }
 
     fn ensure_cursor_visible(&mut self) {
@@ -603,67 +649,73 @@ impl Widget for &Editor {
 impl Editor {
     fn render_wrapped(&self, area: Rect, buf: &mut RatatuiBuffer) {
         let width = area.width as usize;
+        if width == 0 {
+            return;
+        }
+
         let cursor_pos = self.cursor.pos();
         let selection = self.cursor.selection_range();
+        let line_count = self.buffer.line_count();
 
-        let mut visual_y = 0usize;
+        // Use row-based scrolling (consistent with update_scroll)
+        // scroll_offset is the first visible ROW, not visual line
+        let start_row = self.scroll_offset.min(line_count);
         let mut screen_y = area.y;
 
-        for row in 0..self.buffer.line_count() {
+        for row in start_row..line_count {
+            if screen_y >= area.y + area.height {
+                break;
+            }
+
             let line = self.buffer.line(row).unwrap_or("");
             let is_cursor_line = row == cursor_pos.row;
             let chars: Vec<char> = line.chars().collect();
 
             if chars.is_empty() {
-                if visual_y >= self.scroll_offset && screen_y < area.y + area.height {
-                    if is_cursor_line {
-                        if let Some(cell) = buf.cell_mut((area.x, screen_y)) {
+                if is_cursor_line {
+                    if let Some(cell) = buf.cell_mut((area.x, screen_y)) {
+                        cell.set_char(' ');
+                        cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
+                    }
+                }
+                screen_y += 1;
+                continue;
+            }
+
+            // Render line with wrapping
+            let mut col = 0;
+            while col < chars.len() {
+                if screen_y >= area.y + area.height {
+                    return;
+                }
+
+                let segment_end = (col + width).min(chars.len());
+                let mut x = area.x;
+
+                for c in col..segment_end {
+                    let mut style = self.get_char_style(row, c, selection);
+                    if is_cursor_line && c == cursor_pos.col {
+                        style = style.add_modifier(Modifier::REVERSED);
+                    }
+
+                    if let Some(cell) = buf.cell_mut((x, screen_y)) {
+                        cell.set_char(chars[c]);
+                        cell.set_style(style);
+                    }
+                    x += 1;
+                }
+
+                // Render cursor at end of line if cursor is past last char
+                if is_cursor_line && cursor_pos.col >= chars.len() && segment_end == chars.len() {
+                    if x < area.x + area.width {
+                        if let Some(cell) = buf.cell_mut((x, screen_y)) {
                             cell.set_char(' ');
                             cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
                         }
                     }
-                    screen_y += 1;
-                }
-                visual_y += 1;
-                continue;
-            }
-
-            let mut col = 0;
-            while col < chars.len() {
-                if visual_y >= self.scroll_offset {
-                    if screen_y >= area.y + area.height {
-                        return;
-                    }
-
-                    let segment_end = (col + width).min(chars.len());
-                    let mut x = area.x;
-
-                    for c in col..segment_end {
-                        let mut style = self.get_char_style(row, c, selection);
-                        if is_cursor_line && c == cursor_pos.col {
-                            style = style.add_modifier(Modifier::REVERSED);
-                        }
-
-                        if let Some(cell) = buf.cell_mut((x, screen_y)) {
-                            cell.set_char(chars[c]);
-                            cell.set_style(style);
-                        }
-                        x += 1;
-                    }
-
-                    if is_cursor_line && cursor_pos.col >= chars.len() && segment_end == chars.len() {
-                        if x < area.x + area.width {
-                            if let Some(cell) = buf.cell_mut((x, screen_y)) {
-                                cell.set_char(' ');
-                                cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
-                            }
-                        }
-                    }
-
-                    screen_y += 1;
                 }
 
-                visual_y += 1;
+                screen_y += 1;
                 col += width;
             }
         }
