@@ -45,32 +45,38 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
         Style::default().fg(theme.bright_black)
     };
 
-    let outline = List::new(items)
+    let mut outline = List::new(items)
         .block(
             Block::default()
                 .title(" Outline ")
                 .borders(Borders::ALL)
                 .border_style(border_style),
-        )
-        .highlight_style(
-            Style::default()
-                .bg(theme.bright_black)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("▶ ");
+        );
+
+    if app.mode != Mode::Edit {
+        outline = outline
+            .highlight_style(
+                Style::default()
+                    .bg(theme.bright_black)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("▶ ");
+    }
 
     f.render_stateful_widget(outline, area, &mut app.outline_state);
 }
 
 fn render_collapsed_outline(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
+    let in_edit_mode = app.mode == Mode::Edit;
 
     let items: Vec<ListItem> = app
         .outline
         .iter()
         .enumerate()
         .map(|(idx, item)| {
-            let is_selected = app.outline_state.selected() == Some(idx);
+            // Hide selection indicator in edit mode
+            let is_selected = !in_edit_mode && app.outline_state.selected() == Some(idx);
 
             let symbol = match item.level {
                 1 => "◆",  // H1 - Blue
@@ -102,17 +108,20 @@ fn render_collapsed_outline(f: &mut Frame, app: &mut App, area: Rect) {
         Style::default().fg(theme.bright_black)
     };
 
-    let outline = List::new(items)
+    let mut outline = List::new(items)
         .block(
             Block::default()
                 .borders(Borders::ALL)
                 .border_style(border_style),
-        )
-        .highlight_style(
+        );
+
+    if !in_edit_mode {
+        outline = outline.highlight_style(
             Style::default()
                 .bg(theme.bright_black)
                 .add_modifier(Modifier::BOLD),
         );
+    }
 
     f.render_stateful_widget(outline, area, &mut app.outline_state);
 }

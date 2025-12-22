@@ -668,8 +668,8 @@ impl App {
         self.selected_sidebar_index = 0;
         self.sync_selected_note_from_sidebar();
 
-        self.update_outline();
         self.update_content_items();
+        self.update_outline();
     }
 
     fn build_tree(&mut self, dir: &PathBuf, depth: usize) -> Vec<FileTreeItem> {
@@ -848,8 +848,8 @@ impl App {
         });
         self.selected_note = 0;
         self.list_state.select(Some(0));
-        self.update_outline();
         self.update_content_items();
+        self.update_outline();
     }
 
     pub fn create_note(&mut self, name: &str) {
@@ -886,8 +886,8 @@ impl App {
                 }
             }
 
-            self.update_outline();
             self.update_content_items();
+            self.update_outline();
             self.focus = Focus::Content;
         }
 
@@ -969,8 +969,8 @@ impl App {
                 }
                 self.sync_selected_note_from_sidebar();
 
-                self.update_outline();
                 self.update_content_items();
+                self.update_outline();
             }
         }
     }
@@ -987,8 +987,8 @@ impl App {
                 }
                 self.sync_selected_note_from_sidebar();
 
-                self.update_outline();
                 self.update_content_items();
+                self.update_outline();
             }
         }
     }
@@ -1036,8 +1036,8 @@ impl App {
                             }
                         }
 
-                        self.update_outline();
                         self.update_content_items();
+                        self.update_outline();
                     }
                 }
             }
@@ -1090,8 +1090,8 @@ impl App {
                         }
                     }
 
-                    self.update_outline();
                     self.update_content_items();
+                    self.update_outline();
                 }
             }
         }
@@ -1139,30 +1139,31 @@ impl App {
 
     pub fn update_outline(&mut self) {
         self.outline.clear();
-        let content = self.current_note().map(|n| n.content.clone());
-        if let Some(content) = content {
-            for (line_num, line) in content.lines().enumerate() {
+
+        for (idx, item) in self.content_items.iter().enumerate() {
+            if let ContentItem::TextLine(line) = item {
                 if line.starts_with("# ") {
                     self.outline.push(OutlineItem {
                         level: 1,
                         title: line.trim_start_matches("# ").to_string(),
-                        line: line_num,
+                        line: idx,
                     });
                 } else if line.starts_with("## ") {
                     self.outline.push(OutlineItem {
                         level: 2,
                         title: line.trim_start_matches("## ").to_string(),
-                        line: line_num,
+                        line: idx,
                     });
                 } else if line.starts_with("### ") {
                     self.outline.push(OutlineItem {
                         level: 3,
                         title: line.trim_start_matches("### ").to_string(),
-                        line: line_num,
+                        line: idx,
                     });
                 }
             }
         }
+
         if !self.outline.is_empty() {
             self.outline_state.select(Some(0));
         }
@@ -1789,8 +1790,8 @@ impl App {
                         self.content_cursor = 0;
                         self.content_scroll_offset = 0;
                         self.selected_link_index = 0;
-                        self.update_outline();
                         self.update_content_items();
+                        self.update_outline();
                         return true;
                     }
                 }
@@ -1914,8 +1915,8 @@ impl App {
         }
         self.selected_sidebar_index = (self.selected_sidebar_index + 1) % self.sidebar_items.len();
         self.sync_selected_note_from_sidebar();
-        self.update_outline();
         self.update_content_items();
+        self.update_outline();
     }
 
     pub fn previous_sidebar_item(&mut self) {
@@ -1928,8 +1929,8 @@ impl App {
             self.selected_sidebar_index - 1
         };
         self.sync_selected_note_from_sidebar();
-        self.update_outline();
         self.update_content_items();
+        self.update_outline();
     }
 
     pub fn handle_sidebar_enter(&mut self) {
@@ -2039,8 +2040,8 @@ impl App {
         if !self.filtered_indices.is_empty() {
             self.selected_sidebar_index = self.filtered_indices[0];
             self.sync_selected_note_from_sidebar();
-            self.update_outline();
             self.update_content_items();
+            self.update_outline();
         }
     }
 
@@ -2241,8 +2242,8 @@ impl App {
             }
         }
         self.mode = Mode::Normal;
-        self.update_outline();
         self.update_content_items();
+        self.update_outline();
 
         self.content_cursor = cursor_row.min(self.content_items.len().saturating_sub(1));
         let preview_scroll = self.content_cursor.saturating_sub(cursor_offset_from_top);
