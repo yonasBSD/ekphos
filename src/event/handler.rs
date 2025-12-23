@@ -169,7 +169,7 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
                     }).map(|(idx, _)| *idx);
 
                     if let Some(idx) = hovered_item {
-                        if app.item_link_at(idx).is_some() || app.item_is_image_at(idx).is_some() {
+                        if app.item_has_link_at(idx) || app.item_is_image_at(idx).is_some() {
                             app.mouse_hover_item = Some(idx);
                         } else {
                             app.mouse_hover_item = None;
@@ -200,14 +200,15 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
 
                     if clicked_index < app.sidebar_items.len() {
                         app.selected_sidebar_index = clicked_index;
-                        app.focus = Focus::Sidebar;
                         if let Some(item) = app.sidebar_items.get(clicked_index) {
                             match &item.kind {
                                 SidebarItemKind::Folder { path, .. } => {
+                                    app.focus = Focus::Sidebar;
                                     let path = path.clone();
                                     app.toggle_folder(path);
                                 }
                                 SidebarItemKind::Note { .. } => {
+                                    app.focus = Focus::Content;
                                     app.sync_selected_note_from_sidebar();
                                     app.update_content_items();
                                     app.update_outline();
@@ -237,6 +238,14 @@ fn handle_mouse_event(app: &mut App, mouse: crossterm::event::MouseEvent) {
                             let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
                             #[cfg(target_os = "windows")]
                             let _ = std::process::Command::new("cmd").args(["/c", "start", "", &url]).spawn();
+                        }
+                        else if let Some(wiki_link) = app.find_clicked_wiki_link(idx, mouse_x, app.content_area.x) {
+                            if wiki_link.is_valid {
+                                app.navigate_to_wiki_link(&wiki_link.target);
+                            } else {
+                                app.pending_wiki_target = Some(wiki_link.target);
+                                app.dialog = DialogState::CreateWikiNote;
+                            }
                         }
                         else if let Some(path) = app.item_is_image_at(idx) {
                             let is_url = path.starts_with("http://") || path.starts_with("https://");
@@ -1213,17 +1222,23 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                     app.toggle_current_task();
                 } else if let Some(crate::app::ContentItem::Details { .. }) = app.content_items.get(app.content_cursor) {
                     app.toggle_current_details();
-                } else if app.current_item_link().is_some() {
-                    app.open_current_link();
-                } else {
-                    let wiki_links = app.item_wiki_links_at(app.content_cursor);
-                    if let Some(wiki_link) = wiki_links.get(app.selected_link_index) {
-                        let target = wiki_link.target.clone();
-                        if wiki_link.is_valid {
-                            app.navigate_to_wiki_link(&target);
-                        } else {
-                            app.pending_wiki_target = Some(target);
-                            app.dialog = DialogState::CreateWikiNote;
+                } else if let Some(link) = app.current_selected_link() {
+                    match link {
+                        crate::app::LinkInfo::Markdown { url, .. } => {
+                            #[cfg(target_os = "macos")]
+                            let _ = std::process::Command::new("open").arg(&url).spawn();
+                            #[cfg(target_os = "linux")]
+                            let _ = std::process::Command::new("xdg-open").arg(&url).spawn();
+                            #[cfg(target_os = "windows")]
+                            let _ = std::process::Command::new("cmd").args(["/c", "start", "", &url]).spawn();
+                        }
+                        crate::app::LinkInfo::Wiki { target, is_valid, .. } => {
+                            if is_valid {
+                                app.navigate_to_wiki_link(&target);
+                            } else {
+                                app.pending_wiki_target = Some(target);
+                                app.dialog = DialogState::CreateWikiNote;
+                            }
                         }
                     }
                 }

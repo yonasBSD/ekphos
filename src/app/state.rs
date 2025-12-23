@@ -428,6 +428,8 @@ pub struct WikiSuggestion {
     pub is_folder: bool,
     /// Full path for reference
     pub path: String,
+    /// Fuzzy match score (higher is better)
+    pub score: i32,
 }
 
 #[derive(Debug, Clone)]
@@ -437,6 +439,32 @@ pub struct WikiLinkInfo {
     pub start_col: usize,
     pub end_col: usize,
     pub is_valid: bool,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub enum LinkInfo {
+    Markdown {
+        text: String,
+        url: String,
+        start_col: usize,
+        end_col: usize,
+    },
+    Wiki {
+        target: String,
+        start_col: usize,
+        end_col: usize,
+        is_valid: bool,
+    },
+}
+
+impl LinkInfo {
+    pub fn start_col(&self) -> usize {
+        match self {
+            LinkInfo::Markdown { start_col, .. } => *start_col,
+            LinkInfo::Wiki { start_col, .. } => *start_col,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1518,6 +1546,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn current_item_link(&self) -> Option<String> {
         let links = self.item_links_at(self.content_cursor);
         if links.is_empty() {
@@ -1527,8 +1556,41 @@ impl App {
         links.get(idx).map(|(_, url, _, _)| url.clone())
     }
 
+    pub fn item_all_links_at(&self, index: usize) -> Vec<LinkInfo> {
+        let mut all_links = Vec::new();
+
+        for (text, url, start, end) in self.item_links_at(index) {
+            all_links.push(LinkInfo::Markdown {
+                text,
+                url,
+                start_col: start,
+                end_col: end,
+            });
+        }
+        for wiki in self.item_wiki_links_at(index) {
+            all_links.push(LinkInfo::Wiki {
+                target: wiki.target,
+                start_col: wiki.start_col,
+                end_col: wiki.end_col,
+                is_valid: wiki.is_valid,
+            });
+        }
+
+        all_links.sort_by_key(|link| link.start_col());
+        all_links
+    }
+
+    pub fn current_selected_link(&self) -> Option<LinkInfo> {
+        let all_links = self.item_all_links_at(self.content_cursor);
+        if all_links.is_empty() {
+            return None;
+        }
+        let idx = self.selected_link_index.min(all_links.len().saturating_sub(1));
+        all_links.get(idx).cloned()
+    }
+
     pub fn current_line_link_count(&self) -> usize {
-        self.item_links_at(self.content_cursor).len()
+        self.item_all_links_at(self.content_cursor).len()
     }
 
     pub fn next_link(&mut self) {
@@ -1551,6 +1613,12 @@ impl App {
 
     pub fn item_link_at(&self, index: usize) -> Option<String> {
         self.item_links_at(index).first().map(|(_, url, _, _)| url.clone())
+    }
+
+    /// Check if the current line has any links or wikilinks
+    #[allow(dead_code)]
+    pub fn current_item_has_link(&self) -> bool {
+        !self.item_all_links_at(self.content_cursor).is_empty()
     }
 
     /// Extract all links from a specific content item as (text, url, start_col, end_col) tuples
@@ -1650,7 +1718,30 @@ impl App {
             }
         }
 
-        links.first().map(|(_, url, _, _)| url.clone())
+        None
+    }
+    pub fn find_clicked_wiki_link(&self, index: usize, col: u16, content_x: u16) -> Option<WikiLinkInfo> {
+        let wiki_links = self.item_wiki_links_at(index);
+        if wiki_links.is_empty() {
+            return None;
+        }
+
+        let prefix_len = self.get_line_prefix_len(index);
+        let click_col = (col.saturating_sub(content_x)) as usize;
+
+        for wiki_link in wiki_links {
+            let adjusted_start = prefix_len + wiki_link.start_col;
+            let adjusted_end = prefix_len + wiki_link.end_col;
+            if click_col >= adjusted_start && click_col < adjusted_end {
+                return Some(wiki_link);
+            }
+        }
+
+        None
+    }
+
+    pub fn item_has_link_at(&self, index: usize) -> bool {
+        !self.item_links_at(index).is_empty() || !self.item_wiki_links_at(index).is_empty()
     }
 
     fn get_line_prefix_len(&self, index: usize) -> usize {
@@ -1687,6 +1778,7 @@ impl App {
         }
     }
 
+    #[allow(dead_code)]
     pub fn open_current_link(&self) {
         if let Some(url) = self.current_item_link() {
             #[cfg(target_os = "macos")]
@@ -1878,7 +1970,6 @@ impl App {
             ("", query)
         };
 
-        let note_query_lower = note_query.to_lowercase();
         for (idx, note) in self.notes.iter().enumerate() {
             if let Some(wiki_path) = self.get_wiki_path_for_note(idx) {
                 if !folder_prefix.is_empty() {
@@ -1887,7 +1978,7 @@ impl App {
                     }
                 }
 
-                if note.title.to_lowercase().contains(&note_query_lower) {
+                if let Some(score) = fuzzy_match(&note.title, note_query) {
                     suggestions.push(WikiSuggestion {
                         display_name: note.title.clone(),
                         insert_text: wiki_path.clone(),
@@ -1895,6 +1986,7 @@ impl App {
                         path: note.file_path.as_ref()
                             .map(|p| p.display().to_string())
                             .unwrap_or_default(),
+                        score,
                     });
                 }
             }
@@ -1915,12 +2007,13 @@ impl App {
                         }
                     }
 
-                    if item.display_name.to_lowercase().contains(&note_query_lower) {
+                    if let Some(score) = fuzzy_match(&item.display_name, note_query) {
                         suggestions.push(WikiSuggestion {
                             display_name: item.display_name.clone(),
                             insert_text: format!("{}/", folder_path),
                             is_folder: true,
                             path: path.display().to_string(),
+                            score,
                         });
                     }
                 }
@@ -1931,7 +2024,8 @@ impl App {
             match (a.is_folder, b.is_folder) {
                 (false, true) => std::cmp::Ordering::Less,
                 (true, false) => std::cmp::Ordering::Greater,
-                _ => a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase()),
+                _ => b.score.cmp(&a.score)
+                    .then_with(|| a.display_name.to_lowercase().cmp(&b.display_name.to_lowercase())),
             }
         });
 
@@ -2510,5 +2604,66 @@ fn fetch_remote_image_blocking(url: &str) -> Option<DynamicImage> {
 impl Default for App {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// fuzzy matching algorithm that scores matches based on:
+/// - empty query matches everything with base score
+/// - exact match: highest score
+/// - prefix match: high score
+/// - consecutive character matches: bonus points
+/// - earlier matches in the string: bonus points
+/// returns None if no match, Some(score) if matched
+fn fuzzy_match(text: &str, query: &str) -> Option<i32> {
+    if query.is_empty() {
+        return Some(0);
+    }
+    let text_lower = text.to_lowercase();
+    let query_lower = query.to_lowercase();
+    let text_chars: Vec<char> = text_lower.chars().collect();
+    let query_chars: Vec<char> = query_lower.chars().collect();
+
+    if text_lower == query_lower {
+        return Some(1000);
+    }
+
+    if text_lower.starts_with(&query_lower) {
+        return Some(900 + (100 - text.len() as i32).max(0));
+    }
+
+    if text_lower.contains(&query_lower) {
+        let pos = text_lower.find(&query_lower).unwrap_or(0);
+        return Some(500 + (50 - pos as i32).max(0));
+    }
+
+    let mut text_idx = 0;
+    let mut query_idx = 0;
+    let mut score: i32 = 0;
+    let mut prev_matched = false;
+    let mut consecutive_bonus = 0;
+
+    while text_idx < text_chars.len() && query_idx < query_chars.len() {
+        if text_chars[text_idx] == query_chars[query_idx] {
+            score += (100 - text_idx as i32).max(1);
+            if prev_matched {
+                consecutive_bonus += 20;
+            }
+
+            if text_idx == 0 || matches!(text_chars.get(text_idx.saturating_sub(1)), Some(' ' | '_' | '-')) {
+                score += 30;
+            }
+
+            prev_matched = true;
+            query_idx += 1;
+        } else {
+            prev_matched = false;
+        }
+        text_idx += 1;
+    }
+
+    if query_idx == query_chars.len() {
+        Some(score + consecutive_bonus)
+    } else {
+        None
     }
 }
