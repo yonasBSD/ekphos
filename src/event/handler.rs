@@ -9,10 +9,6 @@ use crate::editor::CursorMove;
 use crate::ui;
 
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
-    let mut prev_mode = app.mode;
-    let mut prev_sidebar_collapsed = app.sidebar_collapsed;
-    let mut prev_outline_collapsed = app.outline_collapsed;
-    let mut prev_selected_note = app.selected_note;
     let mut needs_render = true;
 
     loop {
@@ -27,22 +23,10 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut 
             needs_render = true;
         }
 
-        let needs_clear = prev_sidebar_collapsed != app.sidebar_collapsed
-            || prev_outline_collapsed != app.outline_collapsed
-            || prev_mode != app.mode
-            || prev_selected_note != app.selected_note
-            || app.needs_full_clear;
-
-        if needs_clear {
-            terminal.clear()?;
+        if app.needs_full_clear {
             app.needs_full_clear = false;
             needs_render = true;
         }
-
-        prev_mode = app.mode;
-        prev_sidebar_collapsed = app.sidebar_collapsed;
-        prev_outline_collapsed = app.outline_collapsed;
-        prev_selected_note = app.selected_note;
 
         if needs_render {
             terminal.draw(|f| ui::render(f, app))?;
@@ -80,7 +64,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut 
 // Default event handling can't keep up with fast frame update
 // this one is okayish solution to batch event 
 fn process_events(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    _terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     app: &mut App,
     needs_render: &mut bool,
 ) -> io::Result<bool> {
@@ -104,7 +88,8 @@ fn process_events(
             }
             Event::Mouse(mouse) => handle_mouse_event(app, mouse),
             Event::Paste(text) => handle_paste_event(app, text),
-            Event::Resize(_, _) => terminal.clear()?,
+            Event::Resize(_, _) => {
+            }
             _ => {}
         }
 
