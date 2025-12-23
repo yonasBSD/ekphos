@@ -17,11 +17,11 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
 
     let border_style = if app.floating_cursor_mode {
-        Style::default().fg(theme.yellow)
+        Style::default().fg(theme.warning)
     } else if is_focused {
-        Style::default().fg(theme.bright_blue)
+        Style::default().fg(theme.primary)
     } else {
-        Style::default().fg(theme.bright_black)
+        Style::default().fg(theme.border)
     };
 
     let floating_indicator = if app.floating_cursor_mode { " [FLOAT] " } else { "" };
@@ -70,7 +70,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                 if is_open {
                     1 + content_lines.len() as u16
                 } else {
-                    1u16 
+                    1u16
                 }
             }
         }
@@ -263,6 +263,7 @@ where
     let mut chars = text.char_indices().peekable();
     let mut current_start = 0;
     let mut link_index = 0;
+    let content_theme = &theme.content;
 
     while let Some((i, c)) = chars.next() {
         // Check for **bold**
@@ -270,7 +271,7 @@ where
             if let Some(&(_, '*')) = chars.peek() {
                 // Found **, look for closing **
                 if i > current_start {
-                    spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
+                    spans.push(Span::styled(&text[current_start..i], Style::default().fg(content_theme.text)));
                 }
                 chars.next(); // consume second *
                 let bold_start = i + 2;
@@ -289,7 +290,7 @@ where
                 if let Some(end) = bold_end {
                     spans.push(Span::styled(
                         &text[bold_start..end],
-                        Style::default().fg(theme.foreground).add_modifier(Modifier::BOLD),
+                        Style::default().fg(content_theme.text).add_modifier(Modifier::BOLD),
                     ));
                     current_start = end + 2;
                 } else {
@@ -303,7 +304,7 @@ where
         // Check for `code`
         if c == '`' {
             if i > current_start {
-                spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
+                spans.push(Span::styled(&text[current_start..i], Style::default().fg(content_theme.text)));
             }
             let code_start = i + 1;
             let mut code_end = None;
@@ -318,7 +319,7 @@ where
             if let Some(end) = code_end {
                 spans.push(Span::styled(
                     &text[code_start..end],
-                    Style::default().fg(theme.green).bg(theme.black),
+                    Style::default().fg(content_theme.code).bg(content_theme.code_background),
                 ));
                 current_start = end + 1;
             } else {
@@ -336,7 +337,7 @@ where
                     let target = &remaining[2..2 + close_pos];
                     if !target.is_empty() && !target.contains('[') && !target.contains(']') {
                         if i > current_start {
-                            spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
+                            spans.push(Span::styled(&text[current_start..i], Style::default().fg(content_theme.text)));
                         }
 
                         let is_selected = selected_link == Some(link_index);
@@ -347,16 +348,16 @@ where
 
                         let style = if is_selected {
                             Style::default()
-                                .fg(theme.black)
-                                .bg(theme.yellow)
+                                .fg(theme.background)
+                                .bg(theme.warning)
                                 .add_modifier(Modifier::BOLD)
                         } else if is_valid {
                             Style::default()
-                                .fg(theme.cyan)
+                                .fg(content_theme.link)
                                 .add_modifier(Modifier::UNDERLINED)
                         } else {
                             Style::default()
-                                .fg(theme.red)
+                                .fg(content_theme.link_invalid)
                                 .add_modifier(Modifier::UNDERLINED)
                         };
 
@@ -377,7 +378,7 @@ where
                 let after_bracket = &remaining[bracket_end + 2..];
                 if let Some(paren_end) = after_bracket.find(')') {
                     if i > current_start {
-                        spans.push(Span::styled(&text[current_start..i], Style::default().fg(theme.foreground)));
+                        spans.push(Span::styled(&text[current_start..i], Style::default().fg(content_theme.text)));
                     }
 
                     let link_text = &remaining[1..bracket_end];
@@ -386,12 +387,12 @@ where
                     let is_selected = selected_link == Some(link_index);
                     let style = if is_selected {
                         Style::default()
-                            .fg(theme.black)
-                            .bg(theme.yellow)
+                            .fg(theme.background)
+                            .bg(theme.warning)
                             .add_modifier(Modifier::BOLD)
                     } else {
                         Style::default()
-                            .fg(theme.cyan)
+                            .fg(content_theme.link)
                             .add_modifier(Modifier::UNDERLINED)
                     };
 
@@ -411,11 +412,11 @@ where
 
     // Add remaining text
     if current_start < text.len() {
-        spans.push(Span::styled(&text[current_start..], Style::default().fg(theme.foreground)));
+        spans.push(Span::styled(&text[current_start..], Style::default().fg(content_theme.text)));
     }
 
     if spans.is_empty() {
-        spans.push(Span::styled(text, Style::default().fg(theme.foreground)));
+        spans.push(Span::styled(text, Style::default().fg(content_theme.text)));
     }
 
     spans
@@ -591,73 +592,74 @@ fn render_content_line<F>(
     let available_width = (area.width as usize).saturating_sub(1); // 1 char right padding
 
     // Check headings from most specific (######) to least specific (#)
+    let content_theme = &theme.content;
     let styled_line = if line.starts_with("###### ") {
         // H6: Smallest, italic, subtle
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled(
                 line.trim_start_matches("###### "),
                 Style::default()
-                    .fg(theme.white)
+                    .fg(content_theme.text)
                     .add_modifier(Modifier::ITALIC),
             ),
         ])
     } else if line.starts_with("##### ") {
         // H5: Small, muted color
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled(
                 line.trim_start_matches("##### "),
                 Style::default()
-                    .fg(theme.cyan)
+                    .fg(content_theme.heading4)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
     } else if line.starts_with("#### ") {
         // H4: Small prefix
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("› ", Style::default().fg(theme.magenta)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("› ", Style::default().fg(content_theme.heading4)),
             Span::styled(
                 line.trim_start_matches("#### "),
                 Style::default()
-                    .fg(theme.magenta)
+                    .fg(content_theme.heading4)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
     } else if line.starts_with("### ") {
         // H3: Medium prefix
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("▸ ", Style::default().fg(theme.yellow)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("▸ ", Style::default().fg(content_theme.heading3)),
             Span::styled(
                 line.trim_start_matches("### "),
                 Style::default()
-                    .fg(theme.yellow)
+                    .fg(content_theme.heading3)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
     } else if line.starts_with("## ") {
         // H2: Larger prefix
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("■ ", Style::default().fg(theme.green)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("■ ", Style::default().fg(content_theme.heading2)),
             Span::styled(
                 line.trim_start_matches("## "),
                 Style::default()
-                    .fg(theme.green)
+                    .fg(content_theme.heading2)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
     } else if line.starts_with("# ") {
         // H1: Largest, most prominent
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("◆ ", Style::default().fg(theme.blue)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("◆ ", Style::default().fg(content_theme.heading1)),
             Span::styled(
                 line.trim_start_matches("# ").to_uppercase(),
                 Style::default()
-                    .fg(theme.blue)
+                    .fg(content_theme.heading1)
                     .add_modifier(Modifier::BOLD),
             ),
         ])
@@ -665,33 +667,33 @@ fn render_content_line<F>(
         // Bullet list
         let selected = if is_cursor { Some(selected_link) } else { None };
         let mut spans = vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("• ", Style::default().fg(theme.magenta)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("• ", Style::default().fg(content_theme.list_marker)),
         ];
         spans.extend(parse_inline_formatting(line.trim_start_matches("- "), theme, selected, wiki_link_validator));
         Line::from(spans)
     } else if line.starts_with("> ") {
         // Blockquote
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("┃ ", Style::default().fg(theme.bright_black)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("┃ ", Style::default().fg(content_theme.blockquote)),
             Span::styled(
                 line.trim_start_matches("> "),
-                Style::default().fg(theme.white).add_modifier(Modifier::ITALIC),
+                Style::default().fg(content_theme.blockquote).add_modifier(Modifier::ITALIC),
             ),
         ])
     } else if line == "---" || line == "***" || line == "___" {
         // Horizontal rule
         Line::from(vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("─".repeat(40), Style::default().fg(theme.bright_black)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("─".repeat(40), Style::default().fg(theme.border)),
         ])
     } else if line.starts_with("* ") {
         // Bullet list (asterisk variant)
         let selected = if is_cursor { Some(selected_link) } else { None };
         let mut spans = vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-            Span::styled("• ", Style::default().fg(theme.magenta)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+            Span::styled("• ", Style::default().fg(content_theme.list_marker)),
         ];
         spans.extend(parse_inline_formatting(line.trim_start_matches("* "), theme, selected, wiki_link_validator));
         Line::from(spans)
@@ -699,7 +701,7 @@ fn render_content_line<F>(
         // Regular text lines (including numbered lists)
         let selected = if is_cursor { Some(selected_link) } else { None };
         let mut spans = vec![
-            Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+            Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
         ];
         spans.extend(parse_inline_formatting(line, theme, selected, wiki_link_validator));
         Line::from(spans)
@@ -707,7 +709,7 @@ fn render_content_line<F>(
 
     let final_line = if has_link {
         let mut spans = styled_line.spans;
-        spans.push(Span::styled(" Open ↗", Style::default().fg(theme.cyan)));
+        spans.push(Span::styled(" Open ↗", Style::default().fg(content_theme.link)));
         Line::from(spans)
     } else {
         styled_line
@@ -717,7 +719,7 @@ fn render_content_line<F>(
     let wrapped_lines = wrap_line_for_cursor(final_line.spans, available_width, theme);
 
     let bg_style = if is_cursor {
-        Style::default().bg(theme.bright_black)
+        Style::default().bg(theme.selection)
     } else {
         Style::default()
     };
@@ -748,27 +750,28 @@ fn render_code_line(
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
     let expanded_line = expand_tabs(line);
     let available_width = (area.width as usize).saturating_sub(1); // 1 char right padding
+    let content_theme = &theme.content;
 
     let mut spans = vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-        Span::styled("│ ", Style::default().fg(theme.bright_black)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+        Span::styled("│ ", Style::default().fg(theme.border)),
     ];
 
     if !lang.is_empty() {
         if let Some(hl) = highlighter {
             spans.extend(hl.highlight_line(&expanded_line, lang));
         } else {
-            spans.push(Span::styled(expanded_line, Style::default().fg(theme.green)));
+            spans.push(Span::styled(expanded_line, Style::default().fg(content_theme.code)));
         }
     } else {
-        spans.push(Span::styled(expanded_line, Style::default().fg(theme.green)));
+        spans.push(Span::styled(expanded_line, Style::default().fg(content_theme.code)));
     }
 
     let wrapped_lines = wrap_line_for_cursor(spans, available_width, theme);
     let bg_style = if is_cursor {
-        Style::default().bg(theme.bright_black)
+        Style::default().bg(theme.selection)
     } else {
-        Style::default().bg(theme.black)
+        Style::default().bg(content_theme.code_background)
     };
 
     for (i, wrapped_line) in wrapped_lines.iter().enumerate() {
@@ -787,16 +790,17 @@ fn render_code_line(
 
 fn render_code_fence(f: &mut Frame, theme: &Theme, _lang: &str, area: Rect, is_cursor: bool) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
+    let content_theme = &theme.content;
 
     let styled_line = Line::from(vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-        Span::styled("───", Style::default().fg(theme.bright_black)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+        Span::styled("───", Style::default().fg(theme.border)),
     ]);
 
     let style = if is_cursor {
-        Style::default().bg(theme.bright_black)
+        Style::default().bg(theme.selection)
     } else {
-        Style::default().bg(theme.black)
+        Style::default().bg(content_theme.code_background)
     };
 
     let paragraph = Paragraph::new(styled_line)
@@ -807,9 +811,9 @@ fn render_code_fence(f: &mut Frame, theme: &Theme, _lang: &str, area: Rect, is_c
 
 fn render_task_item(f: &mut Frame, theme: &Theme, text: &str, checked: bool, area: Rect, is_cursor: bool) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
-    let checkbox_color = if checked { theme.green } else { theme.magenta };
+    let checkbox_color = if checked { theme.success } else { theme.secondary };
     let text_style = if checked {
-        Style::default().fg(theme.bright_black).add_modifier(Modifier::CROSSED_OUT)
+        Style::default().fg(theme.muted).add_modifier(Modifier::CROSSED_OUT)
     } else {
         Style::default().fg(theme.foreground)
     };
@@ -817,7 +821,7 @@ fn render_task_item(f: &mut Frame, theme: &Theme, text: &str, checked: bool, are
     let available_width = (area.width as usize).saturating_sub(1); // 1 char right padding
 
     let spans = vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
         Span::styled("[", Style::default().fg(checkbox_color)),
         Span::styled(if checked { "x" } else { " " }, Style::default().fg(checkbox_color).add_modifier(Modifier::BOLD)),
         Span::styled("] ", Style::default().fg(checkbox_color)),
@@ -827,7 +831,7 @@ fn render_task_item(f: &mut Frame, theme: &Theme, text: &str, checked: bool, are
     let wrapped_lines = wrap_line_for_cursor(spans, available_width, theme);
 
     let bg_style = if is_cursor {
-        Style::default().bg(theme.bright_black)
+        Style::default().bg(theme.selection)
     } else {
         Style::default()
     };
@@ -857,10 +861,10 @@ fn render_table_row(
     is_cursor: bool,
 ) {
     let cursor_indicator = if is_cursor { "▶ " } else { "  " };
-    let border_color = theme.bright_black;
+    let border_color = theme.border;
 
     let mut spans = vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
         Span::styled("│", Style::default().fg(border_color)),
     ];
 
@@ -883,7 +887,7 @@ fn render_table_row(
             let cell_content = format!(" {:^width$} ", expanded_cell, width = width);
 
             let cell_style = if is_header {
-                Style::default().fg(theme.cyan).add_modifier(Modifier::BOLD)
+                Style::default().fg(theme.info).add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(theme.foreground)
             };
@@ -897,7 +901,7 @@ fn render_table_row(
     let styled_line = Line::from(spans);
 
     let style = if is_cursor {
-        Style::default().bg(theme.bright_black)
+        Style::default().bg(theme.selection)
     } else {
         Style::default()
     };
@@ -955,13 +959,13 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
     let theme = &app.theme;
     let show_hint = is_cursor || is_hovered;
     let border_color = if is_cursor {
-        theme.yellow
+        theme.warning
     } else if is_hovered {
-        theme.cyan
+        theme.info
     } else if is_pending {
-        theme.magenta
+        theme.secondary
     } else {
-        theme.cyan
+        theme.info
     };
 
     let title = if is_pending {
@@ -981,7 +985,7 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
 
     // Add background highlight when cursor is on image
     if is_cursor {
-        let bg = Paragraph::new("").style(Style::default().bg(theme.bright_black));
+        let bg = Paragraph::new("").style(Style::default().bg(theme.selection));
         f.render_widget(bg, area);
     }
 
@@ -989,7 +993,7 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
 
     if is_pending || (is_remote && !is_cached && app.current_image.as_ref().map(|s| s.path != path).unwrap_or(true)) {
         let loading = Paragraph::new("  Loading remote image...")
-            .style(Style::default().fg(theme.magenta).add_modifier(Modifier::ITALIC));
+            .style(Style::default().fg(theme.secondary).add_modifier(Modifier::ITALIC));
         f.render_widget(loading, inner_area);
         return;
     }
@@ -1001,7 +1005,7 @@ fn render_inline_image_with_cursor(f: &mut Frame, app: &mut App, path: &str, are
         }
     } else if !is_remote {
         let placeholder = Paragraph::new("  [Image not found]")
-            .style(Style::default().fg(theme.red).add_modifier(Modifier::ITALIC));
+            .style(Style::default().fg(theme.error).add_modifier(Modifier::ITALIC));
         f.render_widget(placeholder, inner_area);
     }
 }
@@ -1022,11 +1026,11 @@ fn render_details(
 
     let expanded_summary = expand_tabs(summary);
     let summary_spans = vec![
-        Span::styled(cursor_indicator, Style::default().fg(theme.yellow)),
-        Span::styled(toggle_indicator, Style::default().fg(theme.cyan)),
+        Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+        Span::styled(toggle_indicator, Style::default().fg(theme.info)),
         Span::styled(
             expanded_summary,
-            Style::default().fg(theme.cyan).add_modifier(Modifier::BOLD),
+            Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
         ),
     ];
     lines.push(Line::from(summary_spans));
@@ -1036,7 +1040,7 @@ fn render_details(
             let expanded_content = expand_tabs(content);
             let content_spans = vec![
                 Span::styled("  ", Style::default()),
-                Span::styled("│ ", Style::default().fg(theme.bright_black)),
+                Span::styled("│ ", Style::default().fg(theme.border)),
                 Span::styled(expanded_content, Style::default().fg(theme.foreground)),
             ];
             lines.push(Line::from(content_spans));
@@ -1044,7 +1048,7 @@ fn render_details(
     }
 
     let style = if is_cursor {
-        Style::default().bg(theme.bright_black)
+        Style::default().bg(theme.selection)
     } else {
         Style::default()
     };

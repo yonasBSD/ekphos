@@ -7,6 +7,7 @@ mod config;
 mod ui;
 
 use std::env;
+use std::fs;
 use std::io;
 
 use crossterm::{
@@ -33,6 +34,45 @@ fn print_help() {
     println!("    -v, --version    Print version information");
     println!("    -c, --config     Print config file path");
     println!("    -d, --dir        Print notes directory path");
+    println!("    --reset          Reset config and themes to defaults");
+}
+
+fn reset_config_and_themes() {
+    let config_path = config::Config::config_path();
+    let themes_dir = config::Config::themes_dir();
+
+    println!("Resetting ekphos configuration...");
+    println!();
+
+    if config_path.exists() {
+        match fs::remove_file(&config_path) {
+            Ok(_) => println!("  Deleted: {}", config_path.display()),
+            Err(e) => eprintln!("  Failed to remove config: {}", e),
+        }
+    } else {
+        println!("  Config file not found (skipped)");
+    }
+
+    if themes_dir.exists() {
+        match fs::remove_dir_all(&themes_dir) {
+            Ok(_) => println!("  Deleted: {}", themes_dir.display()),
+            Err(e) => eprintln!("  Failed to remove themes: {}", e),
+        }
+    } else {
+        println!("  Themes directory not found (skipped)");
+    }
+
+    println!();
+    println!("Generating fresh defaults...");
+    println!();
+
+    let _config = config::Config::load_or_create();
+
+    println!("  Created: {}", config_path.display());
+    println!("  Created: {}", themes_dir.join("ekphos-dawn.toml").display());
+
+    println!();
+    println!("Reset complete! Configuration restored to v{} defaults.", VERSION);
 }
 
 fn main() -> io::Result<()> {
@@ -55,6 +95,10 @@ fn main() -> io::Result<()> {
             "-d" | "--dir" => {
                 let config = config::Config::load();
                 println!("{}", config.notes_path().display());
+                return Ok(());
+            }
+            "--reset" => {
+                reset_config_and_themes();
                 return Ok(());
             }
             _ => {

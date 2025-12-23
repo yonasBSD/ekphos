@@ -589,15 +589,15 @@ impl App {
         editor.set_block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.blue))
+                .border_style(Style::default().fg(theme.primary))
                 .title(" NORMAL | Ctrl+S: Save, Esc: Exit "),
         );
         // No line highlighting in normal mode - only word highlighting via selection
         editor.set_cursor_line_style(Style::default());
         editor.set_selection_style(
             Style::default()
-                .fg(theme.selection_text)
-                .bg(theme.selection_bg)
+                .fg(theme.foreground)
+                .bg(theme.selection)
         );
 
         // Initialize image picker for terminal graphics
@@ -728,6 +728,36 @@ impl App {
         self.update_outline();
     }
 
+    pub fn reload_config(&mut self) {
+        if self.mode == Mode::Edit {
+            return;
+        }
+
+        self.config = Config::load();
+
+        self.theme = Theme::from_name(&self.config.theme);
+
+        self.editor.set_line_wrap(self.config.editor.line_wrap);
+        self.editor.set_tab_width(self.config.editor.tab_width);
+        self.editor.set_padding(self.config.editor.left_padding, self.config.editor.right_padding);
+        self.editor.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(self.theme.primary))
+                .title(" NORMAL | Ctrl+S: Save, Esc: Exit "),
+        );
+        self.editor.set_selection_style(
+            Style::default()
+                .fg(self.theme.foreground)
+                .bg(self.theme.selection)
+        );
+
+        self.highlighter = None;
+        self.load_notes_from_dir();
+        self.update_content_items();
+        self.update_outline();
+    }
+
     fn directory_has_notes(path: &PathBuf) -> bool {
         Self::directory_has_notes_recursive(path)
     }
@@ -767,7 +797,8 @@ impl App {
 
         self.file_tree = self.build_tree(&notes_path, 0);
 
-        self.sort_tree();
+        // Don't sort - preserve filesystem order so users can control with numbered prefixes
+        // e.g., "01-Getting Started.md" appears before "02-Advanced.md"
 
         self.rebuild_sidebar_items();
 
@@ -2326,8 +2357,8 @@ impl App {
 
             // Set wiki link styles from theme
             self.editor.set_wiki_link_styles(
-                ratatui::style::Style::default().fg(self.theme.cyan),
-                ratatui::style::Style::default().fg(self.theme.red),
+                ratatui::style::Style::default().fg(self.theme.info),
+                ratatui::style::Style::default().fg(self.theme.error),
             );
 
             // Update all editor syntax highlighting
@@ -2397,11 +2428,11 @@ impl App {
             _ => "",
         };
         let color = match (&self.pending_delete, self.vim_mode) {
-            (Some(_), _) => self.theme.red,
-            (None, VimMode::Normal) if self.pending_operator.is_some() => self.theme.yellow,
-            (None, VimMode::Normal) => self.theme.blue,
-            (None, VimMode::Insert) => self.theme.green,
-            (None, VimMode::Visual) => self.theme.magenta,
+            (Some(_), _) => self.theme.error,
+            (None, VimMode::Normal) if self.pending_operator.is_some() => self.theme.warning,
+            (None, VimMode::Normal) => self.theme.primary,
+            (None, VimMode::Insert) => self.theme.success,
+            (None, VimMode::Visual) => self.theme.secondary,
         };
         let hint = match (&self.pending_delete, self.vim_mode) {
             (Some(_), _) => "d: Confirm, Esc: Cancel",
@@ -2417,8 +2448,8 @@ impl App {
         );
         self.editor.set_selection_style(
             Style::default()
-                .fg(self.theme.selection_text)
-                .bg(self.theme.selection_bg)
+                .fg(self.theme.foreground)
+                .bg(self.theme.selection)
         );
         self.editor.set_cursor_line_style(Style::default());
     }

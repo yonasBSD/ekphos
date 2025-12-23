@@ -9,6 +9,8 @@ mod wiki_autocomplete;
 
 use ratatui::{
     layout::{Constraint, Direction, Layout},
+    style::Style,
+    widgets::{Block, Widget},
     Frame,
 };
 
@@ -28,6 +30,9 @@ pub use sidebar::render_sidebar;
 pub use status_bar::render_status_bar;
 
 pub fn render(f: &mut Frame, app: &mut App) {
+    let bg = Block::default().style(Style::default().bg(app.theme.background));
+    bg.render(f.area(), f.buffer_mut());
+
     // Create vertical layout: main area + status bar
     let vertical_chunks = Layout::default()
         .direction(Direction::Vertical)

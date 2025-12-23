@@ -23,8 +23,9 @@ An open source, lightweight, fast, terminal-based markdown research tool built w
   - [Config File](#config-file)
   - [Themes](#themes)
     - [Bundled Theme](#bundled-theme)
-    - [Using Alacritty Themes](#using-alacritty-themes)
-    - [Custom Themes](#custom-themes)
+    - [Theme Format](#theme-format)
+    - [Creating Custom Themes](#creating-custom-themes)
+    - [Contributing Themes](#contributing-themes)
 - [Usage](#usage)
   - [Layout](#layout)
   - [Folder Tree](#folder-tree)
@@ -124,12 +125,29 @@ sudo make uninstall
 
 ### CLI Options
 
-| Flag              | Description            |
-| ----------------- | ---------------------- |
-| `-h`, `--help`    | Print help information |
-| `-v`, `--version` | Print version          |
-| `-c`, `--config`  | Print config file path |
-| `-d`, `--dir`     | Print notes directory  |
+| Flag              | Description                         |
+| ----------------- | ----------------------------------- |
+| `-h`, `--help`    | Print help information              |
+| `-v`, `--version` | Print version                       |
+| `-c`, `--config`  | Print config file path              |
+| `-d`, `--dir`     | Print notes directory               |
+| `--reset`         | Reset config and themes to defaults |
+
+#### Resetting Configuration
+
+If you encounter issues after a breaking update (e.g., theme format changes), you can reset your configuration:
+
+```bash
+ekphos --reset
+```
+
+This will:
+
+- Delete your config file (`~/.config/ekphos/config.toml`)
+- Delete your themes directory (`~/.config/ekphos/themes/`)
+- Regenerate fresh defaults from the latest version
+
+Your notes are **not** affected.
 
 ---
 
@@ -143,7 +161,7 @@ Configuration is stored in `~/.config/ekphos/config.toml`.
 # ~/.config/ekphos/config.toml
 notes_dir = "~/Documents/ekphos"
 welcome_shown = false
-theme = "catppuccin-mocha"
+theme = "ekphos-dawn"
 show_empty_dir = true
 syntax_theme = "base16-ocean.dark"
 
@@ -158,84 +176,141 @@ right_padding = 1
 | ---------------- | -------------------------------------- | -------------------- |
 | `notes_dir`      | Directory where notes are stored       | `~/Documents/ekphos` |
 | `welcome_shown`  | Show welcome dialog on startup         | `true`               |
-| `theme`          | Theme name (without .toml extension)   | `catppuccin-mocha`   |
+| `theme`          | Theme name (without .toml extension)   | `ekphos-dawn`        |
 | `show_empty_dir` | Show folders that contain no .md files | `true`               |
 | `syntax_theme`   | Syntax highlighting theme for code     | `base16-ocean.dark`  |
 
 **Editor settings:**
 
-| Setting               | Description                              | Default |
-| --------------------- | ---------------------------------------- | ------- |
-| `editor.line_wrap`    | Enable soft line wrapping in editor      | `true`  |
-| `editor.tab_width`    | Number of spaces to display for tabs     | `4`     |
-| `editor.left_padding` | Left padding in editor (columns)         | `0`     |
-| `editor.right_padding`| Right padding in editor (columns)        | `1`     |
+| Setting                | Description                          | Default |
+| ---------------------- | ------------------------------------ | ------- |
+| `editor.line_wrap`     | Enable soft line wrapping in editor  | `true`  |
+| `editor.tab_width`     | Number of spaces to display for tabs | `4`     |
+| `editor.left_padding`  | Left padding in editor (columns)     | `0`     |
+| `editor.right_padding` | Right padding in editor (columns)    | `1`     |
 
 > **Note:** This configuration format requires v0.3.0 or later.
 
 ### Themes
 
-> **Experimental:** Themes are still highly experimental. We expect to finalize the theme standard around v0.6.0 or v0.7.0.
-
-Themes are stored in `~/.config/ekphos/themes/` and use the **Alacritty color scheme format**.
+Ekphos uses its own theme format designed for simplicity and semantic color naming. Themes are stored in `~/.config/ekphos/themes/` as `.toml` files.
 
 #### Bundled Theme
 
-- `catppuccin-mocha` (default)
+- `ekphos-dawn` (default) - A smooth dark theme with blue accents
 
-#### Using Alacritty Themes
+#### Theme Format
 
-Ekphos is fully compatible with [Alacritty Themes](https://github.com/alacritty/alacritty-theme). To use any Alacritty theme:
+Ekphos themes use a clean, semantic structure with both base sections and component-specific overrides:
 
-1. Browse themes at https://github.com/alacritty/alacritty-theme/tree/master/themes
-2. Download a theme file to your themes directory:
-   ```bash
-   curl -o ~/.config/ekphos/themes/dracula.toml \
-     https://raw.githubusercontent.com/alacritty/alacritty-theme/master/themes/dracula.toml
-   ```
-3. Set the theme in your config:
-   ```toml
-   theme = "dracula"
-   ```
+**Base Sections:**
 
-#### Custom Themes
+| Section      | Purpose                                           |
+| ------------ | ------------------------------------------------- |
+| `[base]`     | Core background and text colors                   |
+| `[accent]`   | Primary and secondary accent colors               |
+| `[semantic]` | Functional colors (error, warning, success, info) |
+| `[ui]`       | UI element colors (borders, selection, cursor)    |
 
-Create a `.toml` file in the themes directory using the Alacritty color format:
+**Component Sections (Optional):**
+
+| Section          | Purpose                       |
+| ---------------- | ----------------------------- |
+| `[ui.statusbar]` | Status bar specific colors    |
+| `[ui.dialog]`    | Dialog/popup specific colors  |
+| `[ui.sidebar]`   | Sidebar specific colors       |
+| `[ui.content]`   | Content view specific colors  |
+| `[ui.outline]`   | Outline panel specific colors |
+
+**Base Color Reference:**
+
+| Color                  | Usage                                   |
+| ---------------------- | --------------------------------------- |
+| `background`           | Main background                         |
+| `background_secondary` | Popups, code blocks                     |
+| `foreground`           | Primary text                            |
+| `muted`                | Secondary text, hints                   |
+| `primary`              | Focused borders, brand accent, headings |
+| `secondary`            | Secondary accent, visual mode           |
+| `error`                | Error messages, invalid links           |
+| `warning`              | Warnings, selected items                |
+| `success`              | Success messages, valid states          |
+| `info`                 | Info messages, links                    |
+| `border`               | Unfocused borders                       |
+| `border_focused`       | Focused panel borders                   |
+| `selection`            | Text selection background               |
+| `cursor`               | Cursor color                            |
+
+#### Creating Custom Themes
+
+Create a `.toml` file in the themes directory:
 
 ```toml
 # ~/.config/ekphos/themes/mytheme.toml
 
-[colors.primary]
-background = "#1e1e2e"
-foreground = "#cdd6f4"
+[base]
+background = "#1a1b26"
+background_secondary = "#24283b"
+foreground = "#c0caf5"
+muted = "#565f89"
 
-[colors.cursor]
-text = "#1e1e2e"
-cursor = "#f5e0dc"
+[accent]
+primary = "#7aa2f7"
+secondary = "#bb9af7"
 
-[colors.selection]
-text = "#1e1e2e"
-background = "#f5e0dc"
+[semantic]
+error = "#f7768e"
+warning = "#e0af68"
+success = "#9ece6a"
+info = "#7dcfff"
 
-[colors.normal]
-black = "#45475a"
-red = "#f38ba8"
-green = "#a6e3a1"
-yellow = "#f9e2af"
-blue = "#89b4fa"
-magenta = "#f5c2e7"
-cyan = "#94e2d5"
-white = "#bac2de"
+[ui]
+border = "#3b4261"
+border_focused = "#7aa2f7"
+selection = "#283457"
+cursor = "#c0caf5"
 
-[colors.bright]
-black = "#585b70"
-red = "#f38ba8"
-green = "#a6e3a1"
-yellow = "#f9e2af"
-blue = "#89b4fa"
-magenta = "#f5c2e7"
-cyan = "#94e2d5"
-white = "#a6adc8"
+# Optional: Component-specific overrides
+[ui.statusbar]
+background = "#1a1b26"
+foreground = "#c0caf5"
+brand = "#7aa2f7"
+mode = "#565f89"
+separator = "#3b4261"
+
+[ui.dialog]
+background = "#1a1b26"
+border = "#7aa2f7"
+title = "#7aa2f7"
+text = "#c0caf5"
+
+[ui.sidebar]
+background = "#1a1b26"
+item = "#c0caf5"
+item_selected = "#e0af68"
+folder = "#7dcfff"
+folder_expanded = "#7dcfff"
+
+[ui.content]
+background = "#1a1b26"
+text = "#c0caf5"
+heading1 = "#7aa2f7"
+heading2 = "#9ece6a"
+heading3 = "#e0af68"
+heading4 = "#bb9af7"
+link = "#7dcfff"
+link_invalid = "#f7768e"
+code = "#9ece6a"
+code_background = "#24283b"
+blockquote = "#565f89"
+list_marker = "#bb9af7"
+
+[ui.outline]
+background = "#1a1b26"
+heading1 = "#7aa2f7"
+heading2 = "#9ece6a"
+heading3 = "#e0af68"
+heading4 = "#bb9af7"
 ```
 
 Then set in config:
@@ -243,6 +318,47 @@ Then set in config:
 ```toml
 theme = "mytheme"
 ```
+
+> **Tip:** All color values use hex format (`#RRGGBB`). Component sections are optional - missing values fall back to base section colors, then to default ekphos-dawn colors.
+
+#### Contributing Themes
+
+Want to share your theme with the community? Here's how:
+
+1. **Create your theme file** in the `/themes` folder of the repository:
+
+   ```
+   themes/your-theme-name.toml
+   ```
+
+2. **Follow the naming convention:**
+
+   - Use lowercase with hyphens: `tokyo-night.toml`, `dracula.toml`
+   - Be descriptive: `nord-light.toml`, `gruvbox-dark.toml`
+
+3. **Include a header comment** with theme info:
+
+   ```toml
+   # Theme Name - Brief Description
+   # Author: Your Name (optional)
+   # Inspired by: Original theme (if applicable)
+
+   [base]
+   ...
+   ```
+
+4. **Test your theme** by copying it to `~/.config/ekphos/themes/` and setting it in your config
+
+5. **Submit a PR** to the `main` branch with:
+   - Your theme file in `/themes`
+   - A brief description in the PR
+
+**Theme Guidelines:**
+
+- Ensure sufficient contrast between background and foreground
+- Test all UI elements (dialogs, status bar, editor, content, outline)
+- Consider both focused and unfocused states for borders
+- Component sections are optional but allow fine-grained customization
 
 ---
 
@@ -261,6 +377,7 @@ Ekphos has three panels:
 Use `Tab` or `Shift+Tab` to switch between panels.
 
 **Collapsible Panels:**
+
 - Press `Ctrl+b` to collapse/expand the sidebar (shows ≡ icon with note count when collapsed)
 - Press `Ctrl+o` to collapse/expand the outline (shows heading symbols ◆■▸ when collapsed)
 
@@ -334,47 +451,47 @@ Notes are stored as `.md` files in your configured notes directory.
 
 The editor provides real-time markdown syntax highlighting while you type:
 
-| Syntax | Style |
-| --- | --- |
-| `# H1` | Blue + Bold |
-| `## H2` | Green + Bold |
-| `### H3` | Yellow + Bold |
-| `#### H4` | Magenta + Bold |
-| `##### H5` | Cyan + Bold |
-| `###### H6` | Gray + Bold |
-| `**bold**` | Bold |
-| `*italic*` | Italic |
-| `` `code` `` | Green |
-| ` ``` ` blocks | Green |
-| `[link](url)` | Cyan + Underline |
-| `[[wiki link]]` | Cyan (valid) / Red (invalid) |
-| `>` blockquote | Cyan |
-| `- * +` list markers | Yellow |
-| `1. 2.` ordered list | Yellow |
-| `[ ] [x]` task boxes | Cyan |
+| Syntax               | Style                        |
+| -------------------- | ---------------------------- |
+| `# H1`               | Blue + Bold                  |
+| `## H2`              | Green + Bold                 |
+| `### H3`             | Yellow + Bold                |
+| `#### H4`            | Magenta + Bold               |
+| `##### H5`           | Cyan + Bold                  |
+| `###### H6`          | Gray + Bold                  |
+| `**bold**`           | Bold                         |
+| `*italic*`           | Italic                       |
+| `` `code` ``         | Green                        |
+| ` ``` ` blocks       | Green                        |
+| `[link](url)`        | Cyan + Underline             |
+| `[[wiki link]]`      | Cyan (valid) / Red (invalid) |
+| `>` blockquote       | Cyan                         |
+| `- * +` list markers | Yellow                       |
+| `1. 2.` ordered list | Yellow                       |
+| `[ ] [x]` task boxes | Cyan                         |
 
 Highlighting updates automatically as you edit, helping you visualize markdown structure without leaving edit mode.
 
 ### Markdown Support
 
-| Syntax           | Rendered As                  |
-| ---------------- | ---------------------------- |
-| `# Heading`      | ◆ HEADING (blue)             |
-| `## Heading`     | ■ Heading (green)            |
-| `### Heading`    | ▸ Heading (yellow)           |
-| `#### Heading`   | › Heading (mauve)            |
-| `##### Heading`  | Heading (teal)               |
-| `###### Heading` | _Heading_ (subtle)           |
-| `- item`         | • item                       |
-| `- [ ] task`     | [ ] task (unchecked)         |
-| `- [x] task`     | [x] task (checked)           |
-| `` `code` ``     | Inline code (green)          |
-| ` ```lang `      | Syntax-highlighted code      |
-| `![alt](path)`   | Inline image                 |
-| `[text](url)`    | Clickable link (cyan)        |
-| `[[note]]`       | Wiki link (cyan/red)         |
-| `\| table \|`    | Formatted table              |
-| `<details>`      | Collapsible dropdown (cyan)  |
+| Syntax           | Rendered As                 |
+| ---------------- | --------------------------- |
+| `# Heading`      | ◆ HEADING (blue)            |
+| `## Heading`     | ■ Heading (green)           |
+| `### Heading`    | ▸ Heading (yellow)          |
+| `#### Heading`   | › Heading (mauve)           |
+| `##### Heading`  | Heading (teal)              |
+| `###### Heading` | _Heading_ (subtle)          |
+| `- item`         | • item                      |
+| `- [ ] task`     | [ ] task (unchecked)        |
+| `- [x] task`     | [x] task (checked)          |
+| `` `code` ``     | Inline code (green)         |
+| ` ```lang `      | Syntax-highlighted code     |
+| `![alt](path)`   | Inline image                |
+| `[text](url)`    | Clickable link (cyan)       |
+| `[[note]]`       | Wiki link (cyan/red)        |
+| `\| table \|`    | Formatted table             |
+| `<details>`      | Collapsible dropdown (cyan) |
 
 ### Syntax Highlighting
 
@@ -476,10 +593,10 @@ Ekphos supports Obsidian-style wiki links for inter-document linking:
 
 **Syntax:**
 
-| Format | Description |
-| --- | --- |
-| `[[note]]` | Link to a note in the root directory |
-| `[[folder/note]]` | Link to a note in a subfolder |
+| Format            | Description                          |
+| ----------------- | ------------------------------------ |
+| `[[note]]`        | Link to a note in the root directory |
+| `[[folder/note]]` | Link to a note in a subfolder        |
 
 **Preview Mode:**
 
@@ -492,7 +609,7 @@ Ekphos supports Obsidian-style wiki links for inter-document linking:
 
 - Wiki links are syntax-highlighted (cyan for valid, red for invalid)
 - Type `[[` to trigger the autocomplete popup
-- Use `↑/↓` to navigate suggestions (max 5 visible at a time)
+- Use `↑/↓` to navigate suggestions
 - Folders are prefixed with `dir:`
 - Press `Enter` to insert the selected note/folder
 - Press `Esc` to close the popup
@@ -501,6 +618,7 @@ Ekphos supports Obsidian-style wiki links for inter-document linking:
 **Creating Notes from Links:**
 
 When you navigate to a wiki link that doesn't exist:
+
 1. A dialog appears asking if you want to create the note
 2. Press `y` to create the note at the specified path
 3. Press `n` or `Esc` to cancel
@@ -544,19 +662,20 @@ The outline panel shows all headings in your note:
 
 ### Global
 
-| Key         | Action                                     |
-| ----------- | ------------------------------------------ |
-| `j/k`       | Navigate up/down                           |
-| `gg`        | Go to first item                           |
-| `G`         | Go to last item                            |
-| `Tab`       | Switch focus (Sidebar → Content → Outline) |
-| `Shift+Tab` | Switch focus (reverse)                     |
-| `Enter/o`   | Open image / Jump to heading               |
-| `?`         | Show help dialog                           |
-| `q`         | Quit                                       |
-| `Ctrl+b`    | Toggle sidebar collapse                    |
-| `Ctrl+o`    | Toggle outline collapse                    |
-| `R`         | Reload files from disk                     |
+| Key            | Action                                     |
+| -------------- | ------------------------------------------ |
+| `j/k`          | Navigate up/down                           |
+| `gg`           | Go to first item                           |
+| `G`            | Go to last item                            |
+| `Tab`          | Switch focus (Sidebar → Content → Outline) |
+| `Shift+Tab`    | Switch focus (reverse)                     |
+| `Enter/o`      | Open image / Jump to heading               |
+| `?`            | Show help dialog                           |
+| `q`            | Quit                                       |
+| `Ctrl+b`       | Toggle sidebar collapse                    |
+| `Ctrl+o`       | Toggle outline collapse                    |
+| `R`            | Reload files from disk                     |
+| `Ctrl+Shift+R` | Reload config and theme                    |
 
 ### Sidebar
 
@@ -641,12 +760,12 @@ Press `v` in normal mode to enter visual mode for text selection.
 
 In edit mode, use the mouse for quick text selection:
 
-| Action           | Result                                  |
-| ---------------- | --------------------------------------- |
-| **Click**        | Position cursor                         |
-| **Drag**         | Select text (enters visual mode)        |
-| **Right-click**  | Context menu (Copy / Cut / Paste)       |
-| **Drag to edge** | Auto-scroll while selecting             |
+| Action           | Result                            |
+| ---------------- | --------------------------------- |
+| **Click**        | Position cursor                   |
+| **Drag**         | Select text (enters visual mode)  |
+| **Right-click**  | Context menu (Copy / Cut / Paste) |
+| **Drag to edge** | Auto-scroll while selecting       |
 
 **Auto-scroll:** When dragging near the top or bottom edge of the editor, the view automatically scrolls to allow selecting text beyond the visible area.
 

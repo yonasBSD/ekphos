@@ -10,6 +10,7 @@ use crate::app::{App, Focus, Mode, SidebarItemKind};
 
 pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
+    let sidebar_theme = &theme.sidebar;
     if app.sidebar_collapsed {
         render_collapsed_sidebar(f, app, area);
         return;
@@ -30,11 +31,11 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         let has_query = !app.search_query.is_empty();
         let has_results = !app.search_matched_notes.is_empty();
         let border_color = if has_query && !has_results {
-            theme.red 
+            theme.error
         } else if has_query && has_results {
-            theme.green 
+            theme.success
         } else {
-            theme.yellow 
+            theme.warning
         };
 
         let search_block = Block::default()
@@ -43,7 +44,7 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             .title(" Search ");
 
         let search_text = Paragraph::new(Line::from(vec![
-            Span::styled("/", Style::default().fg(theme.white)),
+            Span::styled("/", Style::default().fg(theme.foreground)),
             Span::styled(&app.search_query, Style::default().fg(theme.foreground)),
             Span::styled("_", Style::default().fg(border_color)),
         ]))
@@ -64,12 +65,13 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
             let (icon, style) = match &item.kind {
                 SidebarItemKind::Folder { expanded, .. } => {
                     let icon = if *expanded { "▼ " } else { "▶ " };
+                    let folder_color = if *expanded { sidebar_theme.folder_expanded } else { sidebar_theme.folder };
                     let style = if is_selected {
                         Style::default()
-                            .fg(theme.cyan)
+                            .fg(folder_color)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(theme.cyan)
+                        Style::default().fg(folder_color)
                     };
                     (icon, style)
                 }
@@ -78,14 +80,14 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
                     let is_match = is_searching && app.search_matched_notes.contains(note_index);
                     let style = if is_selected {
                         Style::default()
-                            .fg(theme.yellow)
+                            .fg(sidebar_theme.item_selected)
                             .add_modifier(Modifier::BOLD)
                     } else if is_match {
                         Style::default()
-                            .fg(theme.green)
+                            .fg(theme.success)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(theme.foreground)
+                        Style::default().fg(sidebar_theme.item)
                     };
                     (icon, style)
                 }
@@ -97,9 +99,9 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     let border_style = if app.focus == Focus::Sidebar && app.mode == Mode::Normal {
-        Style::default().fg(theme.bright_blue)
+        Style::default().fg(theme.primary)
     } else {
-        Style::default().fg(theme.bright_black)
+        Style::default().fg(theme.border)
     };
 
     let title = if is_searching {
@@ -123,10 +125,10 @@ pub fn render_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
         )
         .highlight_style(
             Style::default()
-                .bg(theme.bright_black)
+                .bg(theme.selection)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol("");  
+        .highlight_symbol("");
 
     let mut list_state = ListState::default();
     list_state.select(Some(app.selected_sidebar_index));
@@ -140,9 +142,9 @@ fn render_collapsed_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
 
     let border_style = if app.focus == Focus::Sidebar && app.mode == Mode::Normal {
-        Style::default().fg(theme.bright_blue)
+        Style::default().fg(theme.primary)
     } else {
-        Style::default().fg(theme.bright_black)
+        Style::default().fg(theme.border)
     };
 
     let note_count = app.sidebar_items
@@ -160,7 +162,7 @@ fn render_collapsed_sidebar(f: &mut Frame, app: &mut App, area: Rect) {
     }
     lines.push(Line::from(Span::styled(
         " ≡",
-        Style::default().fg(theme.cyan),
+        Style::default().fg(theme.info),
     )));
     lines.push(Line::from(Span::styled(
         format!(" {}", note_count),

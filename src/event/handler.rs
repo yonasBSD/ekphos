@@ -1142,6 +1142,10 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
                 }
             }
         }
+        KeyCode::Char('R') if key.modifiers == KeyModifiers::SHIFT | KeyModifiers::CONTROL => {
+            app.reload_config();
+            app.needs_full_clear = true;
+        }
         KeyCode::Char('R') => {
             app.reload_on_focus();
             app.needs_full_clear = true;

@@ -35,13 +35,13 @@ pub fn render_editor(f: &mut Frame, app: &mut App, area: Rect) {
 
             if has_left_overflow {
                 let indicator = Paragraph::new("«│")
-                    .style(Style::default().fg(theme.yellow));
+                    .style(Style::default().fg(theme.warning));
                 f.render_widget(indicator, Rect::new(area.x + 1, y, 2, 1));
             }
 
             if has_right_overflow {
                 let indicator = Paragraph::new("│»")
-                    .style(Style::default().fg(theme.yellow));
+                    .style(Style::default().fg(theme.warning));
                 f.render_widget(indicator, Rect::new(area.x + area.width - 3, y, 2, 1));
             }
         }

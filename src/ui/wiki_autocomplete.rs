@@ -10,7 +10,7 @@ use crate::app::{App, WikiAutocompleteState};
 
 const POPUP_WIDTH: u16 = 45;
 const POPUP_MAX_VISIBLE_ITEMS: usize = 5;
-const POPUP_MAX_HEIGHT: u16 = (POPUP_MAX_VISIBLE_ITEMS as u16) + 2; 
+const POPUP_MAX_HEIGHT: u16 = (POPUP_MAX_VISIBLE_ITEMS as u16) + 2;
 
 pub fn render_wiki_autocomplete(f: &mut Frame, app: &App) {
     if let WikiAutocompleteState::Open {
@@ -50,7 +50,7 @@ pub fn render_wiki_autocomplete(f: &mut Frame, app: &App) {
             0
         };
 
-        let max_name_width = (popup_width as usize).saturating_sub(8); 
+        let max_name_width = (popup_width as usize).saturating_sub(8);
 
         let lines: Vec<Line> = suggestions
             .iter()
@@ -72,7 +72,7 @@ pub fn render_wiki_autocomplete(f: &mut Frame, app: &App) {
                 let style = if is_selected {
                     Style::default()
                         .fg(theme.background)
-                        .bg(theme.blue)
+                        .bg(theme.primary)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(theme.foreground)
@@ -81,7 +81,7 @@ pub fn render_wiki_autocomplete(f: &mut Frame, app: &App) {
                 let prefix_style = if is_selected {
                     style
                 } else {
-                    Style::default().fg(theme.yellow)
+                    Style::default().fg(theme.warning)
                 };
 
                 if is_selected {
@@ -89,14 +89,14 @@ pub fn render_wiki_autocomplete(f: &mut Frame, app: &App) {
                     let used_width = 1 + prefix_len + display_name.chars().count();
                     let padding_right = " ".repeat(content_width.saturating_sub(used_width));
                     Line::from(vec![
-                        Span::styled(" ".to_string(), style),  
+                        Span::styled(" ".to_string(), style),
                         Span::styled(prefix.to_string(), prefix_style),
                         Span::styled(display_name, style),
-                        Span::styled(padding_right, style),  
+                        Span::styled(padding_right, style),
                     ])
                 } else {
                     Line::from(vec![
-                        Span::raw(" "), 
+                        Span::raw(" "),
                         Span::styled(prefix.to_string(), prefix_style),
                         Span::styled(display_name, style),
                     ])
@@ -121,8 +121,8 @@ pub fn render_wiki_autocomplete(f: &mut Frame, app: &App) {
                 .title(title)
                 .title_bottom(Line::from(hint).right_aligned())
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(theme.cyan))
-                .style(Style::default().bg(theme.black)),
+                .border_style(Style::default().fg(theme.info))
+                .style(Style::default().bg(theme.background_secondary)),
         );
 
         f.render_widget(popup, popup_area);

@@ -14,99 +14,110 @@ pub fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     // Calculate stats
     let (word_count, reading_time) = if let Some(note) = app.current_note() {
         let words: usize = note.content.split_whitespace().count();
-        let minutes = (words as f64 / 200.0).ceil() as usize; // ~200 words per minute
+        let minutes = (words as f64 / 200.0).ceil() as usize;
         (words, minutes)
     } else {
         (0, 0)
     };
 
-    // Calculate percentage complete based on cursor position
+    // Calculate percentage
     let percentage = if app.content_items.is_empty() {
         0
     } else {
         ((app.content_cursor + 1) * 100) / app.content_items.len()
     };
 
-    // Get current note file path
     let note_path = app
         .current_note()
         .and_then(|n| n.file_path.as_ref())
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|| "No file".to_string());
+        .map(|p| {
+            let path_str = p.to_string_lossy().to_string();
+            if let Some(home) = dirs::home_dir() {
+                let home_str = home.to_string_lossy().to_string();
+                if path_str.starts_with(&home_str) {
+                    return path_str.replacen(&home_str, "~", 1);
+                }
+            }
+            path_str
+        })
+        .unwrap_or_else(|| "—".to_string());
 
-    // Get current mode indicator
-    let mode_indicator = match app.mode {
+    // Get mode indicator
+    let mode_text = match app.mode {
         Mode::Normal => match app.focus {
-            Focus::Sidebar => "SIDEBAR",
-            Focus::Content => "CONTENT",
-            Focus::Outline => "OUTLINE",
+            Focus::Sidebar => "sidebar",
+            Focus::Content => "content",
+            Focus::Outline => "outline",
         },
         Mode::Edit => match app.vim_mode {
-            VimMode::Normal => "EDIT: NORMAL",
-            VimMode::Insert => "EDIT: INSERT",
-            VimMode::Visual => "EDIT: VISUAL",
+            VimMode::Normal => "normal",
+            VimMode::Insert => "insert",
+            VimMode::Visual => "visual",
         },
     };
 
-    // Build status bar content
-    let logo = Span::styled(
-        " ◆ Ekphos ",
+    let statusbar = &theme.statusbar;
+
+    let brand = Span::styled(
+        " ekphos ",
         Style::default()
-            .fg(theme.black)
-            .bg(theme.bright_blue)
+            .fg(statusbar.brand)
             .add_modifier(Modifier::BOLD),
     );
 
+    let separator1 = Span::styled(
+        "›",
+        Style::default().fg(statusbar.separator),
+    );
+
     let mode = Span::styled(
-        format!(" {} ", mode_indicator),
-        Style::default()
-            .fg(theme.black)
-            .bg(theme.yellow),
+        format!(" {} ", mode_text),
+        Style::default().fg(statusbar.mode),
+    );
+
+    let separator2 = Span::styled(
+        "›",
+        Style::default().fg(statusbar.separator),
     );
 
     let file_path = Span::styled(
-        format!(" {} ", note_path),
-        Style::default().fg(theme.foreground),
+        format!(" {}", note_path),
+        Style::default().fg(statusbar.foreground),
     );
 
-    let separator = Span::styled(
-        " │ ",
-        Style::default().fg(theme.bright_black),
+    // Right side content
+    let stats = Span::styled(
+        format!("{}w · {}m", word_count, reading_time),
+        Style::default().fg(statusbar.mode),
     );
 
-    let reading = Span::styled(
-        format!("{} words ~{}min", word_count, reading_time),
-        Style::default().fg(theme.green),
+    let position = Span::styled(
+        format!("  {}%", percentage),
+        Style::default().fg(statusbar.mode),
     );
 
-    let progress = Span::styled(
-        format!(" {}% ", percentage),
-        Style::default()
-            .fg(theme.black)
-            .bg(theme.magenta),
+    let help = Span::styled(
+        "  ? for help",
+        Style::default().fg(statusbar.mode),
     );
 
-    let help_key = Span::styled(
-        " ? for help ",
-        Style::default().fg(theme.white).bg(theme.bright_black),
-    );
-
-    // Calculate spacing for justify-between layout
-    let left_content = vec![logo, Span::raw(" "), mode, Span::raw(" "), file_path];
-    let right_content = vec![reading, separator.clone(), progress, Span::raw(" "), help_key];
+    // Build layout
+    let left_content = vec![brand, separator1, mode, separator2, file_path];
+    let right_content = vec![stats, position, help];
 
     let left_width: usize = left_content.iter().map(|s| s.content.len()).sum();
     let right_width: usize = right_content.iter().map(|s| s.content.len()).sum();
     let available_width = area.width as usize;
-    let padding = available_width.saturating_sub(left_width + right_width);
+    let padding = available_width.saturating_sub(left_width + right_width + 1);
 
     let mut spans = left_content;
-    spans.push(Span::styled(" ".repeat(padding), Style::default().bg(theme.bright_black)));
+    spans.push(Span::styled(" ".repeat(padding), Style::default().bg(statusbar.background)));
     spans.extend(right_content);
+    spans.push(Span::styled(" ", Style::default().bg(statusbar.background)));
 
     let status_line = Line::from(spans);
     let status_bar = Paragraph::new(status_line)
-        .style(Style::default().bg(theme.bright_black));
+        .style(Style::default().bg(statusbar.background));
 
     f.render_widget(status_bar, area);
 }

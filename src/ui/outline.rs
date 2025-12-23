@@ -14,6 +14,7 @@ fn expand_tabs(text: &str) -> String {
 
 pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
+    let outline_theme = &theme.outline;
     if app.outline_collapsed {
         render_collapsed_outline(f, app, area);
         return;
@@ -31,10 +32,10 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
                 _ => "",
             };
             let style = match item.level {
-                1 => Style::default().fg(theme.blue).add_modifier(Modifier::BOLD),
-                2 => Style::default().fg(theme.green),
-                3 => Style::default().fg(theme.yellow),
-                _ => Style::default().fg(theme.foreground),
+                1 => Style::default().fg(outline_theme.heading1).add_modifier(Modifier::BOLD),
+                2 => Style::default().fg(outline_theme.heading2),
+                3 => Style::default().fg(outline_theme.heading3),
+                _ => Style::default().fg(outline_theme.heading4),
             };
             ListItem::new(Line::from(Span::styled(
                 format!("{}{}{}", indent, prefix, expand_tabs(&item.title)),
@@ -44,9 +45,9 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     let border_style = if app.focus == Focus::Outline && app.mode == Mode::Normal {
-        Style::default().fg(theme.bright_blue)
+        Style::default().fg(theme.primary)
     } else {
-        Style::default().fg(theme.bright_black)
+        Style::default().fg(theme.border)
     };
 
     let mut outline = List::new(items)
@@ -61,7 +62,7 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
         outline = outline
             .highlight_style(
                 Style::default()
-                    .bg(theme.bright_black)
+                    .bg(theme.selection)
                     .add_modifier(Modifier::BOLD),
             )
             .highlight_symbol("▶ ");
@@ -74,6 +75,7 @@ pub fn render_outline(f: &mut Frame, app: &mut App, area: Rect) {
 
 fn render_collapsed_outline(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
+    let outline_theme = &theme.outline;
     let in_edit_mode = app.mode == Mode::Edit;
 
     let items: Vec<ListItem> = app
@@ -85,17 +87,17 @@ fn render_collapsed_outline(f: &mut Frame, app: &mut App, area: Rect) {
             let is_selected = !in_edit_mode && app.outline_state.selected() == Some(idx);
 
             let symbol = match item.level {
-                1 => "◆",  // H1 - Blue
-                2 => "■",  // H2 - Green
-                3 => "▸",  // H3 - Yellow
-                _ => "›",  // H4+ - Magenta
+                1 => "◆",  // H1
+                2 => "■",  // H2
+                3 => "▸",  // H3
+                _ => "›",  // H4+
             };
 
             let style = match item.level {
-                1 => Style::default().fg(theme.blue).add_modifier(Modifier::BOLD),
-                2 => Style::default().fg(theme.green),
-                3 => Style::default().fg(theme.yellow),
-                _ => Style::default().fg(theme.magenta),
+                1 => Style::default().fg(outline_theme.heading1).add_modifier(Modifier::BOLD),
+                2 => Style::default().fg(outline_theme.heading2),
+                3 => Style::default().fg(outline_theme.heading3),
+                _ => Style::default().fg(outline_theme.heading4),
             };
 
             let display = if is_selected {
@@ -109,9 +111,9 @@ fn render_collapsed_outline(f: &mut Frame, app: &mut App, area: Rect) {
         .collect();
 
     let border_style = if app.focus == Focus::Outline && app.mode == Mode::Normal {
-        Style::default().fg(theme.bright_blue)
+        Style::default().fg(theme.primary)
     } else {
-        Style::default().fg(theme.bright_black)
+        Style::default().fg(theme.border)
     };
 
     let mut outline = List::new(items)
@@ -124,7 +126,7 @@ fn render_collapsed_outline(f: &mut Frame, app: &mut App, area: Rect) {
     if !in_edit_mode {
         outline = outline.highlight_style(
             Style::default()
-                .bg(theme.bright_black)
+                .bg(theme.selection)
                 .add_modifier(Modifier::BOLD),
         );
     }

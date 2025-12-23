@@ -42,7 +42,7 @@ pub fn render_context_menu(f: &mut Frame, app: &App) {
                 let style = if idx == selected_index {
                     Style::default()
                         .fg(app.theme.background)
-                        .bg(app.theme.blue)
+                        .bg(app.theme.primary)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(app.theme.foreground)
@@ -54,8 +54,8 @@ pub fn render_context_menu(f: &mut Frame, app: &App) {
         let menu = Paragraph::new(lines).block(
             Block::default()
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(app.theme.bright_black))
-                .style(Style::default().bg(app.theme.black)),
+                .border_style(Style::default().fg(app.theme.border))
+                .style(Style::default().bg(app.theme.background_secondary)),
         );
 
         f.render_widget(menu, menu_area);
