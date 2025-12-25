@@ -48,7 +48,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut 
                 if process_events(terminal, app, &mut needs_render)? {
                     return Ok(());
                 }
-            } else if app.mouse_button_held && app.mode == Mode::Edit {
+            } else if app.mouse_button_held && app.mode == Mode::Edit && app.vim_mode == VimMode::Visual {
                 handle_continuous_auto_scroll(app);
                 needs_render = true;
             }
@@ -341,24 +341,15 @@ fn handle_edit_mode_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
                 let line_len = app.editor.lines().get(row).map(|l| l.chars().count()).unwrap_or(0);
                 let col = col.min(line_len);
 
-                // Start selection if in Normal vim mode, switch to Visual
-                if app.vim_mode == VimMode::Normal {
-                    // Move cursor to clicked position first
-                    move_editor_cursor_to(app, row, col);
-                    app.vim_mode = VimMode::Visual;
-                    app.editor.start_selection();
-                } else if app.vim_mode == VimMode::Visual {
-                    // Already in visual, cancel and restart
+                if app.vim_mode == VimMode::Visual {
                     app.editor.cancel_selection();
-                    move_editor_cursor_to(app, row, col);
-                    app.editor.start_selection();
-                } else {
-                    // In Insert mode, just move cursor
-                    move_editor_cursor_to(app, row, col);
+                    app.vim_mode = VimMode::Normal;
                 }
+                move_editor_cursor_to(app, row, col);
 
                 app.mouse_button_held = true;
                 app.mouse_drag_start = Some((row as u16, col as u16));
+                app.last_mouse_y = mouse_y; // Initialize to prevent stale auto-scroll
                 app.update_editor_block();
             }
         }
@@ -382,8 +373,17 @@ fn handle_edit_mode_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
                 // Store last mouse Y for continuous scrolling
                 app.last_mouse_y = mouse_y;
 
-                // Handle auto-scroll when near edges
-                handle_auto_scroll(app, mouse_y);
+                // Start Visual mode on first drag if in Normal mode
+                if app.vim_mode == VimMode::Normal {
+                    app.vim_mode = VimMode::Visual;
+                    app.editor.start_selection();
+                    app.update_editor_block();
+                }
+
+                // Only auto-scroll when in Visual mode (actively selecting)
+                if app.vim_mode == VimMode::Visual {
+                    handle_auto_scroll(app, mouse_y);
+                }
 
                 if let Some((row, col)) = app.screen_to_editor_coords(mouse_x, mouse_y) {
                     let line_count = app.editor.line_count();
@@ -401,14 +401,29 @@ fn handle_edit_mode_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
             if app.editor_scroll_top > 0 {
                 app.editor_scroll_top = app.editor_scroll_top.saturating_sub(3);
                 app.editor.set_scroll_offset(app.editor_scroll_top);
+
+                let (cursor_row, cursor_col) = app.editor.cursor();
+                let line_count = app.editor.line_count();
+                let max_row = line_count.saturating_sub(1);
+                let viewport_bottom = (app.editor_scroll_top + app.editor_view_height.saturating_sub(1)).min(max_row);
+                if cursor_row > viewport_bottom {
+                    move_editor_cursor_to(app, viewport_bottom, cursor_col);
+                }
             }
         }
 
         MouseEventKind::ScrollDown => {
-            let max_scroll = app.editor.line_count().saturating_sub(app.editor_view_height);
+            let line_count = app.editor.line_count();
+            let max_scroll = line_count.saturating_sub(app.editor_view_height);
             if app.editor_scroll_top < max_scroll {
                 app.editor_scroll_top = (app.editor_scroll_top + 3).min(max_scroll);
                 app.editor.set_scroll_offset(app.editor_scroll_top);
+
+                let (cursor_row, cursor_col) = app.editor.cursor();
+                let target_row = app.editor_scroll_top.min(line_count.saturating_sub(1));
+                if cursor_row < app.editor_scroll_top {
+                    move_editor_cursor_to(app, target_row, cursor_col);
+                }
             }
         }
 

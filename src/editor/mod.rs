@@ -1109,13 +1109,55 @@ impl Editor {
     pub fn set_view_size(&mut self, width: usize, height: usize) {
         self.view_width = width;
         self.view_height = height;
-        self.ensure_cursor_visible();
     }
 
     pub fn get_overflow_info(&self) -> (bool, bool) {
         let (cursor_row, _) = self.cursor();
         let line_len = self.buffer.line_len(cursor_row);
         (self.h_scroll_offset > 0, line_len > self.h_scroll_offset + self.view_width)
+    }
+
+    pub fn visual_to_logical_coords(&self, visual_y: usize, visual_x: usize) -> (usize, usize) {
+        if !self.line_wrap_enabled || self.view_width == 0 {
+            let row = visual_y + self.scroll_offset;
+            let col = visual_x + self.h_scroll_offset;
+            return (row, col);
+        }
+
+        let content_width = self.view_width.saturating_sub(self.right_padding as usize);
+        if content_width == 0 {
+            return (self.scroll_offset, 0);
+        }
+
+        let line_count = self.buffer.line_count();
+        let mut visual_lines_consumed = 0;
+        let mut row = self.scroll_offset;
+
+        while row < line_count {
+            let line_len = self.buffer.line_len(row);
+            let visual_lines_for_row = if line_len == 0 {
+                1
+            } else {
+                (line_len + content_width - 1) / content_width 
+            };
+
+            if visual_lines_consumed + visual_lines_for_row > visual_y {
+                let visual_offset_in_row = visual_y - visual_lines_consumed;
+                let col = visual_offset_in_row * content_width + visual_x;
+                return (row, col.min(line_len));
+            }
+
+            visual_lines_consumed += visual_lines_for_row;
+            row += 1;
+        }
+
+        if line_count > 0 {
+            let last_row = line_count - 1;
+            let last_col = self.buffer.line_len(last_row);
+            (last_row, last_col)
+        } else {
+            (0, 0)
+        }
     }
 }
 

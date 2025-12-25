@@ -2443,7 +2443,6 @@ impl App {
 
     pub fn update_editor_scroll(&mut self, view_height: usize) {
         self.editor_view_height = view_height;
-        self.editor.update_scroll(view_height);
         self.editor_scroll_top = self.editor.scroll_offset();
     }
 
@@ -2612,13 +2611,10 @@ impl App {
             return None;
         }
 
-        // Calculate relative position within editor
         let rel_x = (mouse_x - inner_x) as usize;
         let rel_y = (mouse_y - inner_y) as usize;
 
-        // Add scroll offset to get actual row
-        let row = rel_y + self.editor_scroll_top;
-        let col = rel_x;
+        let (row, col) = self.editor.visual_to_logical_coords(rel_y, rel_x);
 
         Some((row, col))
     }
