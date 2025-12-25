@@ -885,7 +885,11 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
         ]),
         Line::from(vec![
             Span::styled(" Space     ", key_style),
-            Span::styled("Toggle task/details", desc_style),
+            Span::styled("Toggle task/Open link", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled(" ]/[       ", key_style),
+            Span::styled("Next/Previous link", desc_style),
         ]),
         Line::from(""),
         Line::from(Span::styled(
