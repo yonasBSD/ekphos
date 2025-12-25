@@ -24,41 +24,60 @@ A lightweight, fast, terminal-based markdown research tool built with Rust.
 
 Ekphos has three panels:
 
-- **Sidebar** (left): List of your notes
+- **Sidebar** (left): Collapsible folder tree with notes
 - **Content** (center): Note content with markdown rendering
 - **Outline** (right): Auto-generated headings for quick navigation
 
-Use `Tab` to switch between panels.
+Use `Tab` or `Shift+Tab` to switch between panels.
+
+**Collapsible Panels:**
+
+- Press `Ctrl+b` to collapse/expand the sidebar
+- Press `Ctrl+o` to collapse/expand the outline
 
 ## Navigation
 
 - `j/k` or Arrow keys: Navigate up/down
+- `gg`: Go to first item
+- `G`: Go to last item
 - `J/K` (Shift): Toggle floating cursor mode (view stays fixed)
-- `Tab`: Switch focus between panels
+- `Tab` / `Shift+Tab`: Switch focus between panels
 - `Enter`: Jump to heading (in Outline) or open image (in Content)
 - `Space`: Toggle task checkbox, open link, or navigate wikilink
 - `]/[`: Next/previous link (when multiple links on same line)
 - `/`: Search notes (in Sidebar)
 - `?`: Show help dialog
+- `R`: Reload files from disk
+- `Ctrl+Shift+R`: Reload config and theme
 
-## Notes Management
+## Notes and Folders
 
-- `n`: Create new note
-- `d`: Delete current note
+- `n`: Create new note (context-aware: creates in current folder)
+- `N`: Create new folder (context-aware: creates as subfolder)
+- `r`: Rename note or folder
+- `d`: Delete note or folder
 - `e`: Enter edit mode
+
+### Folder Tree
+
+The sidebar displays a hierarchical folder tree:
+
+- Folders are shown with `>` (collapsed) or `v` (expanded) icons
+- Press `Enter` on a folder to toggle expand/collapse
+- Folders and notes are sorted alphabetically
 
 ## Edit Mode (Vim Keybindings)
 
 ### Modes
 
-- `i`: Insert mode
+- `i`: Insert before cursor
 - `a`: Insert after cursor
 - `A`: Insert at end of line
 - `I`: Insert at start of line
 - `o`: New line below
 - `O`: New line above
 - `v`: Visual mode (select text)
-- `Esc`: Return to normal mode
+- `Esc`: Exit edit mode (discards unsaved changes)
 
 ### Movement
 
@@ -71,11 +90,41 @@ Use `Tab` to switch between panels.
 
 - `x`: Delete character
 - `dd`: Delete line
-- `y`: Yank (copy) line
+- `dw`: Delete word forward
+- `db`: Delete word backward
+- `y`: Yank (copy) selection
 - `p`: Paste
 - `u`: Undo
 - `Ctrl+r`: Redo
 - `Ctrl+s`: Save and exit edit mode
+
+### Visual Mode
+
+Press `v` to enter visual mode for text selection:
+
+- `h/j/k/l`: Extend selection
+- `w/b`: Extend by word
+- `y`: Yank selection
+- `d/x`: Delete selection
+- `Esc`: Cancel
+
+### Mouse Selection
+
+Use the mouse for quick text selection:
+
+- **Click**: Position cursor
+- **Drag**: Select text (enters visual mode)
+- **Right-click**: Context menu (Copy / Cut / Paste)
+
+### Editor Syntax Highlighting
+
+The editor provides real-time markdown highlighting while you type:
+
+- Headings with color-coded levels
+- **Bold** and *italic* formatting
+- `Inline code` in green
+- [[Wiki links]] in cyan (valid) or red (invalid)
+- List markers and task checkboxes
 
 ## Markdown Support
 
@@ -112,9 +161,6 @@ If you link to a note that doesn't exist (like [[New Ideas]]), pressing `Space` 
 - Bullet item two
 - Bullet item three
 
-* Asterisk style also works
-* Like this
-
 ### Task Lists
 
 Track your tasks with checkboxes! Press `Space` to toggle:
@@ -130,7 +176,7 @@ Track your tasks with checkboxes! Press `Space` to toggle:
 |---------|--------|-------|
 | Headings | Done | H1-H6 |
 | Lists | Done | Bullets |
-| Tables | Done | New! |
+| Tables | Done | Formatted |
 
 ### Collapsible Details
 
@@ -146,23 +192,6 @@ You can include any text here, and it will be revealed when the details section 
 Use this for FAQs, spoilers, or optional information.
 </details>
 
-<details>
-<summary>Another collapsible section</summary>
-
-More hidden content here!
-</details>
-
-**Syntax example:**
-
-```html
-<details>
-<summary>Summary text here</summary>
-
-Your hidden content goes here.
-Multiple lines are supported.
-</details>
-```
-
 ### Blockquotes
 
 > This is a blockquote.
@@ -173,32 +202,15 @@ Multiple lines are supported.
 Code blocks support **syntax highlighting** for many languages:
 
 ```rust
-// Rust example with syntax highlighting
 fn main() {
     let message = "Hello, Ekphos!";
     println!("{}", message);
-
-    for i in 0..5 {
-        println!("Count: {}", i);
-    }
 }
 ```
 
 ```python
-# Python also works
 def greet(name: str) -> str:
     return f"Hello, {name}!"
-
-if __name__ == "__main__":
-    print(greet("World"))
-```
-
-```javascript
-// JavaScript too
-const greet = (name) => {
-    return `Hello, ${name}!`;
-};
-console.log(greet("Ekphos"));
 ```
 
 ### Horizontal Rules
@@ -214,28 +226,20 @@ Images can be embedded using standard markdown syntax:
 ![remote](https://example.com/image.png)
 ```
 
-Both local files and remote URLs (http/https) are supported.
+Both local files and remote URLs are supported.
 
 Click on an image or press `Enter`/`o` to open it in your system viewer.
 
-Supported formats: PNG, JPEG, GIF, WebP, BMP
-
-For inline preview, use a compatible terminal (iTerm2, Kitty, WezTerm, Sixel).
+For inline preview, use a compatible terminal (iTerm2, Kitty, WezTerm, Ghostty, Sixel).
 
 ### Links
 
-Links are rendered with special styling. Click or press `Space` to open in your browser:
+Links are rendered with special styling. Click or press `Space` to open:
 
 - Visit the [Ekphos Website](https://ekphos.xyz) for more information
-- Check out [GitHub](https://github.com) for the source code
 - Multiple links on one line: [Google](https://google.com) and [DuckDuckGo](https://duckduckgo.com)
 
-**Keyboard navigation:**
-- `Space`: Open the selected link
-- `]`: Next link (when multiple links on same line)
-- `[`: Previous link
-
-The selected link is highlighted with a yellow background.
+Use `]` and `[` to navigate between links on the same line.
 
 ## CLI Options
 
@@ -245,6 +249,7 @@ Run from terminal:
 - `ekphos --version`: Show version
 - `ekphos --config`: Show config file path
 - `ekphos --dir`: Show notes directory path
+- `ekphos --reset`: Reset config and themes to defaults
 
 ## Configuration
 
@@ -252,21 +257,22 @@ Config file: `~/.config/ekphos/config.toml`
 
 ```toml
 notes_dir = "~/Documents/ekphos"
+theme = "ekphos-dawn"
+syntax_theme = "base16-ocean.dark"
+show_empty_dir = true
 
-[theme]
-name = "catppuccin-mocha"
+[editor]
+line_wrap = true
+tab_width = 4
 ```
 
 ## Themes
 
-Built-in themes:
+Default theme: `ekphos-dawn`
 
-- catppuccin-mocha (default)
-- catppuccin-latte
-- catppuccin-frappe
-- catppuccin-macchiato
+Custom themes can be added to `~/.config/ekphos/themes/` as `.toml` files.
 
-Custom themes can be added to `~/.config/ekphos/themes/`
+Theme format uses semantic sections: `[base]`, `[accent]`, `[semantic]`, `[ui]`
 
 ---
 
