@@ -42,15 +42,18 @@ pub fn render(f: &mut Frame, app: &mut App) {
         ])
         .split(f.area());
 
-    // Determine panel widths based on collapsed state
-    let sidebar_constraint = if app.sidebar_collapsed {
-        Constraint::Length(5) 
+    let sidebar_constraint = if app.zen_mode {
+        Constraint::Length(0)
+    } else if app.sidebar_collapsed {
+        Constraint::Length(5)
     } else {
         Constraint::Percentage(20)
     };
 
-    let outline_constraint = if app.outline_collapsed {
-        Constraint::Length(5) 
+    let outline_constraint = if app.zen_mode {
+        Constraint::Length(0)
+    } else if app.outline_collapsed {
+        Constraint::Length(5)
     } else {
         Constraint::Percentage(20)
     };

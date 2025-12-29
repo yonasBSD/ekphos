@@ -1102,8 +1102,8 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
 
     match key.code {
         KeyCode::Char('q') => return true,
-        KeyCode::Tab => app.toggle_focus(false),
-        KeyCode::BackTab => app.toggle_focus(true),
+        KeyCode::Tab if !app.zen_mode => app.toggle_focus(false),
+        KeyCode::BackTab if !app.zen_mode => app.toggle_focus(true),
         KeyCode::Char('e') => app.enter_edit_mode(),
         KeyCode::Char('n') => {
             app.input_buffer.clear();
@@ -1265,6 +1265,9 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
         }
         KeyCode::Char('b') if key.modifiers == KeyModifiers::CONTROL => {
             app.toggle_sidebar_collapsed();
+        }
+        KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
+            app.toggle_zen_mode();
         }
         KeyCode::Char('g') => {
             if was_pending_g {

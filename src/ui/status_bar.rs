@@ -86,6 +86,17 @@ pub fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
     );
 
     // Right side content
+    let zen_indicator = if app.zen_mode {
+        vec![
+            Span::styled(
+                "zen  ",
+                Style::default().fg(theme.info).add_modifier(Modifier::BOLD),
+            ),
+        ]
+    } else {
+        vec![]
+    };
+
     let stats = Span::styled(
         format!("{}w · {}m", word_count, reading_time),
         Style::default().fg(statusbar.mode),
@@ -103,7 +114,8 @@ pub fn render_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     // Build layout
     let left_content = vec![brand, separator1, mode, separator2, file_path];
-    let right_content = vec![stats, position, help];
+    let mut right_content = zen_indicator;
+    right_content.extend(vec![stats, position, help]);
 
     let left_width: usize = left_content.iter().map(|s| s.content.len()).sum();
     let right_width: usize = right_content.iter().map(|s| s.content.len()).sum();

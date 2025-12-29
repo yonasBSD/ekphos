@@ -554,6 +554,7 @@ pub struct App {
     pub highlighter_receiver: Receiver<Highlighter>,
     pub sidebar_collapsed: bool,
     pub outline_collapsed: bool,
+    pub zen_mode: bool,
     // Mouse selection state
     pub mouse_button_held: bool,
     pub mouse_drag_start: Option<(u16, u16)>,
@@ -631,6 +632,8 @@ impl App {
         };
 
         let input_buffer = config.notes_dir.clone();
+        let sidebar_collapsed = config.sidebar_collapsed;
+        let outline_collapsed = config.outline_collapsed;
 
         let (image_sender, image_receiver) = mpsc::channel();
         let (highlighter_sender, highlighter_receiver) = mpsc::channel();
@@ -686,8 +689,9 @@ impl App {
             highlighter_loading: false,
             highlighter_sender,
             highlighter_receiver,
-            sidebar_collapsed: false,
-            outline_collapsed: false,
+            sidebar_collapsed,
+            outline_collapsed,
+            zen_mode: false,
             // Mouse selection state
             mouse_button_held: false,
             mouse_drag_start: None,
@@ -770,6 +774,8 @@ impl App {
         };
 
         let input_buffer = config.notes_dir.clone();
+        let sidebar_collapsed = config.sidebar_collapsed;
+        let outline_collapsed = config.outline_collapsed;
 
         let (image_sender, image_receiver) = mpsc::channel();
         let (highlighter_sender, highlighter_receiver) = mpsc::channel();
@@ -825,8 +831,9 @@ impl App {
             highlighter_loading: false,
             highlighter_sender,
             highlighter_receiver,
-            sidebar_collapsed: false,
-            outline_collapsed: false,
+            sidebar_collapsed,
+            outline_collapsed,
+            zen_mode: false,
             mouse_button_held: false,
             mouse_drag_start: None,
             last_mouse_y: 0,
@@ -2445,6 +2452,13 @@ impl App {
 
     pub fn toggle_outline_collapsed(&mut self) {
         self.outline_collapsed = !self.outline_collapsed;
+    }
+
+    pub fn toggle_zen_mode(&mut self) {
+        self.zen_mode = !self.zen_mode;
+        if self.zen_mode {
+            self.focus = Focus::Content;
+        }
     }
 
     pub fn update_filtered_indices(&mut self) {

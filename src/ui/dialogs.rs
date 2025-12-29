@@ -828,6 +828,10 @@ pub fn render_help_dialog(f: &mut Frame, app: &App) {
             Span::styled("Toggle outline", desc_style),
         ]),
         Line::from(vec![
+            Span::styled(" Ctrl+f    ", key_style),
+            Span::styled("Toggle zen mode", desc_style),
+        ]),
+        Line::from(vec![
             Span::styled(" R         ", key_style),
             Span::styled("Reload files from disk", desc_style),
         ]),
