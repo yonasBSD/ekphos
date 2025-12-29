@@ -15,6 +15,7 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 use crate::editor::Editor;
 use crate::highlight::Highlighter;
 use crate::config::{Config, Theme};
+use crate::vim::VimState;
 
 const GETTING_STARTED_CONTENT: &str = r#"# Getting Started
 
@@ -573,6 +574,7 @@ pub struct App {
     pub outline: Vec<OutlineItem>,
     pub outline_state: ListState,
     pub vim_mode: VimMode,
+    pub vim: VimState,
     pub content_cursor: usize,
     pub content_scroll_offset: usize,
     pub floating_cursor_mode: bool,
@@ -622,6 +624,7 @@ pub struct App {
     pub needs_full_clear: bool,
     pub pending_g: bool,
     pub buffer_search: BufferSearchState,
+    pub help_scroll: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -711,6 +714,7 @@ impl App {
             outline: Vec::new(),
             outline_state: ListState::default(),
             vim_mode: VimMode::Normal,
+            vim: VimState::new(),
             content_cursor: 0,
             content_scroll_offset: 0,
             floating_cursor_mode: false,
@@ -759,6 +763,7 @@ impl App {
             needs_full_clear: false,
             pending_g: false,
             buffer_search: BufferSearchState::new(),
+            help_scroll: 0,
         };
 
         if !is_first_launch && notes_dir_exists {
@@ -854,6 +859,7 @@ impl App {
             outline: Vec::new(),
             outline_state: ListState::default(),
             vim_mode: VimMode::Normal,
+            vim: VimState::new(),
             content_cursor: 0,
             content_scroll_offset: 0,
             floating_cursor_mode: false,
@@ -901,6 +907,7 @@ impl App {
             needs_full_clear: false,
             pending_g: false,
             buffer_search: BufferSearchState::new(),
+            help_scroll: 0,
         };
 
         if notes_dir_exists {
@@ -2822,6 +2829,9 @@ impl App {
 
             self.editor = Editor::new(lines);
             self.vim_mode = VimMode::Normal;
+            self.vim.mode = crate::vim::VimMode::Normal;
+            self.vim.reset_pending();
+            self.vim.command_buffer.clear();
 
             // Set wiki link styles from theme
             self.editor.set_wiki_link_styles(
@@ -2884,28 +2894,43 @@ impl App {
     }
 
     pub fn update_editor_block(&mut self) {
-        let mode_str = match self.vim_mode {
-            VimMode::Normal => "NORMAL",
-            VimMode::Insert => "INSERT",
-            VimMode::Visual => "VISUAL",
+        // Check for command mode first (from new vim state)
+        let is_command_mode = self.vim.mode.is_command();
+
+        let mode_str = if is_command_mode {
+            "COMMAND"
+        } else {
+            match self.vim_mode {
+                VimMode::Normal => "NORMAL",
+                VimMode::Insert => "INSERT",
+                VimMode::Visual => "VISUAL",
+            }
         };
         let pending_str = match (&self.pending_delete, self.pending_operator) {
             (Some(_), _) => " [DEL]",
             (None, Some('d')) => " d-",
             _ => "",
         };
-        let color = match (&self.pending_delete, self.vim_mode) {
-            (Some(_), _) => self.theme.error,
-            (None, VimMode::Normal) if self.pending_operator.is_some() => self.theme.warning,
-            (None, VimMode::Normal) => self.theme.primary,
-            (None, VimMode::Insert) => self.theme.success,
-            (None, VimMode::Visual) => self.theme.secondary,
+        let color = if is_command_mode {
+            self.theme.info
+        } else {
+            match (&self.pending_delete, self.vim_mode) {
+                (Some(_), _) => self.theme.error,
+                (None, VimMode::Normal) if self.pending_operator.is_some() => self.theme.warning,
+                (None, VimMode::Normal) => self.theme.primary,
+                (None, VimMode::Insert) => self.theme.success,
+                (None, VimMode::Visual) => self.theme.secondary,
+            }
         };
-        let hint = match (&self.pending_delete, self.vim_mode) {
-            (Some(_), _) => "d: Confirm, Esc: Cancel",
-            (None, VimMode::Visual) => "y: Yank, d: Delete, Esc: Cancel",
-            (None, _) if self.pending_operator == Some('d') => "d: Line, w: Word→, b: Word←",
-            _ => "Ctrl+S: Save, Esc: Exit",
+        let hint = if is_command_mode {
+            "Enter: Execute, Esc: Cancel"
+        } else {
+            match (&self.pending_delete, self.vim_mode) {
+                (Some(_), _) => "d: Confirm, Esc: Cancel",
+                (None, VimMode::Visual) => "y: Yank, d: Delete, Esc: Cancel",
+                (None, _) if self.pending_operator == Some('d') => "d: Line, w: Word→, b: Word←",
+                _ => "Ctrl+S: Save, Esc: Exit",
+            }
         };
         self.editor.set_block(
             Block::default()
@@ -2922,8 +2947,12 @@ impl App {
     }
 
     pub fn save_edit(&mut self) {
-        // Clear search state when exiting edit mode
+        // Clear search state and vim state when exiting edit mode
         self.end_buffer_search();
+        self.vim.reset_pending();
+        self.vim.command_buffer.clear();
+        self.vim.mode = crate::vim::VimMode::Normal;
+        self.vim_mode = VimMode::Normal;
 
         let (cursor_row, _) = self.editor.cursor();
         let editor_scroll = self.editor.scroll_offset();
@@ -2949,6 +2978,10 @@ impl App {
 
     pub fn cancel_edit(&mut self) {
         self.end_buffer_search();
+        self.vim.reset_pending();
+        self.vim.command_buffer.clear();
+        self.vim.mode = crate::vim::VimMode::Normal;
+        self.vim_mode = VimMode::Normal;
 
         let (cursor_row, _) = self.editor.cursor();
         let editor_scroll = self.editor.scroll_offset();

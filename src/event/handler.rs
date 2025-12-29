@@ -7,6 +7,8 @@ use crate::app::{App, ContextMenuItem, ContextMenuState, DeleteType, DialogState
 use crate::clipboard::{self, ClipboardContent};
 use crate::editor::CursorMove;
 use crate::ui;
+use crate::vim::{FindState, PendingFind, PendingMacro, PendingMark, TextObject, TextObjectScope, VimMode as VimModeNew};
+use crate::vim::command::{parse_command, Command};
 
 pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
     let mut needs_render = true;
@@ -998,9 +1000,31 @@ fn handle_rename_folder_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
 }
 
 fn handle_help_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    // Max scroll is approximately the right column content length (the longer one)
+    const MAX_HELP_LINES: usize = 90;
+
     match key.code {
         KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q') | KeyCode::Char('?') => {
+            app.help_scroll = 0;
             app.dialog = DialogState::None;
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            app.help_scroll = app.help_scroll.saturating_add(1).min(MAX_HELP_LINES);
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            app.help_scroll = app.help_scroll.saturating_sub(1);
+        }
+        KeyCode::Char('d') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            app.help_scroll = app.help_scroll.saturating_add(10).min(MAX_HELP_LINES);
+        }
+        KeyCode::Char('u') if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) => {
+            app.help_scroll = app.help_scroll.saturating_sub(10);
+        }
+        KeyCode::Char('g') => {
+            app.help_scroll = 0;
+        }
+        KeyCode::Char('G') => {
+            app.help_scroll = MAX_HELP_LINES;
         }
         _ => {}
     }
@@ -1454,6 +1478,13 @@ fn handle_edit_mode(app: &mut App, key: crossterm::event::KeyEvent) {
         return;
     }
 
+    // Check the new vim state mode for command mode
+    if app.vim.mode.is_command() {
+        handle_vim_command_mode(app, key);
+        app.update_editor_block();
+        return;
+    }
+
     match app.vim_mode {
         VimMode::Normal => handle_vim_normal_mode(app, key),
         VimMode::Insert => handle_vim_insert_mode(app, key),
@@ -1463,161 +1494,589 @@ fn handle_edit_mode(app: &mut App, key: crossterm::event::KeyEvent) {
 }
 
 fn handle_vim_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) {
+    // Record key for macros (skip q which toggles recording)
+    if app.vim.macros.is_recording() && key.code != KeyCode::Char('q') {
+        app.vim.macros.record_key(key);
+    }
+
+    // Handle pending find (f/F/t/T waiting for char)
+    if let Some(pending) = app.vim.pending_find.take() {
+        if let KeyCode::Char(c) = key.code {
+            let find = pending.into_find_state(c);
+            app.vim.last_find = Some(find);
+            execute_find(app, find);
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
+    // Handle pending register selection ("a, "+, etc.)
+    if app.vim.pending_register {
+        app.vim.pending_register = false;
+        if let KeyCode::Char(c) = key.code {
+            // Valid register chars: a-z, A-Z, 0-9, ", -, +, *, etc.
+            if c.is_ascii_alphanumeric() || matches!(c, '"' | '-' | '+' | '*' | '_') {
+                app.vim.registers.select(c);
+            }
+        }
+        return;
+    }
+
+    // Handle awaiting replace char
+    if app.vim.awaiting_replace {
+        app.vim.awaiting_replace = false;
+        if let KeyCode::Char(c) = key.code {
+            app.editor.delete_char();
+            app.editor.insert_char(c);
+            app.editor.move_cursor(CursorMove::Back);
+            app.vim.last_change = Some(crate::vim::LastChange::ReplaceChar(c));
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
+    // Handle pending text object scope (i or a was pressed)
+    if let Some(scope) = app.vim.pending_text_object_scope.take() {
+        if let KeyCode::Char(c) = key.code {
+            if let Some((_, obj)) = TextObject::parse(if scope == TextObjectScope::Inner { 'i' } else { 'a' }, c) {
+                execute_text_object(app, scope, obj);
+            }
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
+    // Handle pending macro (q or @ was pressed)
+    if let Some(pending) = app.vim.pending_macro.take() {
+        if let KeyCode::Char(c) = key.code {
+            if c.is_ascii_lowercase() {
+                match pending {
+                    PendingMacro::Record => {
+                        if app.vim.macros.is_recording() {
+                            app.vim.macros.stop_recording();
+                        } else {
+                            app.vim.macros.start_recording(c);
+                        }
+                    }
+                    PendingMacro::Play => {
+                        if let Some(keys) = app.vim.macros.get_macro(c).cloned() {
+                            app.vim.macros.set_last_played(c);
+                            let count = app.vim.get_count();
+                            for _ in 0..count {
+                                for k in &keys {
+                                    handle_vim_normal_mode(app, *k);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
+    // Handle pending mark (m, `, or ' was pressed)
+    if let Some(pending) = app.vim.pending_mark.take() {
+        if let KeyCode::Char(c) = key.code {
+            match pending {
+                PendingMark::Set => {
+                    let pos = app.editor.cursor();
+                    app.vim.marks.set(c, crate::editor::Position::new(pos.0, pos.1));
+                }
+                PendingMark::GotoExact => {
+                    if let Some(pos) = app.vim.marks.get(c) {
+                        app.vim.marks.set_last_jump(crate::editor::Position::new(app.editor.cursor().0, app.editor.cursor().1));
+                        app.editor.move_cursor(CursorMove::GoToLine(pos.row + 1));
+                        for _ in 0..pos.col { app.editor.move_cursor(CursorMove::Forward); }
+                    }
+                }
+                PendingMark::GotoLine => {
+                    if let Some(pos) = app.vim.marks.get(c) {
+                        app.vim.marks.set_last_jump(crate::editor::Position::new(app.editor.cursor().0, app.editor.cursor().1));
+                        app.editor.move_cursor(CursorMove::GoToLine(pos.row + 1));
+                        app.editor.move_cursor(CursorMove::FirstNonBlank);
+                    }
+                }
+            }
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
+    // Handle pending g (gg, ge, gE, etc.)
+    if app.vim.pending_g {
+        app.vim.pending_g = false;
+        match key.code {
+            KeyCode::Char('g') => {
+                if let Some(count) = app.vim.count.take() {
+                    app.editor.move_cursor(CursorMove::GoToLine(count));
+                } else {
+                    app.editor.move_cursor(CursorMove::Top);
+                }
+            }
+            KeyCode::Char('e') => {
+                let count = app.vim.get_count();
+                for _ in 0..count { app.editor.move_cursor(CursorMove::WordEndBackward); }
+            }
+            KeyCode::Char('E') => {
+                let count = app.vim.get_count();
+                for _ in 0..count { app.editor.move_cursor(CursorMove::BigWordEndBackward); }
+            }
+            _ => {}
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
+    // Handle pending z (zz, zt, zb for scrolling)
+    if app.vim.pending_z {
+        app.vim.pending_z = false;
+        match key.code {
+            KeyCode::Char('z') => {
+                // zz - center cursor line on screen
+                app.editor.center_cursor();
+            }
+            KeyCode::Char('t') => {
+                // zt - scroll cursor line to top
+                app.editor.scroll_cursor_to_top();
+            }
+            KeyCode::Char('b') => {
+                // zb - scroll cursor line to bottom
+                app.editor.scroll_cursor_to_bottom();
+            }
+            _ => {}
+        }
+        app.vim.reset_pending();
+        return;
+    }
+
     match key.code {
+        // Count accumulation
+        KeyCode::Char(c @ '1'..='9') => {
+            let digit = c.to_digit(10).unwrap() as usize;
+            app.vim.accumulate_count(digit);
+            return;
+        }
+        KeyCode::Char('0') if app.vim.count.is_some() => {
+            app.vim.accumulate_count(0);
+            return;
+        }
+
+        // Register selection - set pending and wait for register char
+        KeyCode::Char('"') => {
+            app.vim.pending_register = true;
+            return;
+        }
+
+        // Text object triggers (must come before mode changes)
+        KeyCode::Char('i') if app.pending_operator.is_some() => {
+            app.vim.pending_text_object_scope = Some(TextObjectScope::Inner);
+        }
+        KeyCode::Char('a') if app.pending_operator.is_some() => {
+            app.vim.pending_text_object_scope = Some(TextObjectScope::Around);
+        }
+
+        // Mode changes
         KeyCode::Char('i') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
             app.vim_mode = VimMode::Insert;
         }
         KeyCode::Char('a') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
-            app.vim_mode = VimMode::Insert;
             app.editor.move_cursor(CursorMove::Forward);
+            app.vim_mode = VimMode::Insert;
         }
         KeyCode::Char('A') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
-            app.vim_mode = VimMode::Insert;
             app.editor.move_cursor(CursorMove::End);
+            app.vim_mode = VimMode::Insert;
         }
         KeyCode::Char('I') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
+            app.editor.move_cursor(CursorMove::FirstNonBlank);
             app.vim_mode = VimMode::Insert;
-            app.editor.move_cursor(CursorMove::Head);
         }
         KeyCode::Char('o') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
-            app.vim_mode = VimMode::Insert;
             app.editor.move_cursor(CursorMove::End);
             app.editor.insert_newline();
+            app.vim_mode = VimMode::Insert;
         }
         KeyCode::Char('O') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
-            app.vim_mode = VimMode::Insert;
             app.editor.move_cursor(CursorMove::Head);
             app.editor.insert_newline();
             app.editor.move_cursor(CursorMove::Up);
+            app.vim_mode = VimMode::Insert;
+        }
+        KeyCode::Char('v') if key.modifiers == KeyModifiers::CONTROL => {
+            // Visual block mode (Ctrl-V)
+            app.vim.reset_pending();
+            app.vim_mode = VimMode::Visual; // TODO: Full visual block support
+            app.editor.cancel_selection();
+            app.editor.start_selection();
         }
         KeyCode::Char('v') => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.vim_mode = VimMode::Visual;
             app.editor.cancel_selection();
             app.editor.start_selection();
         }
-        KeyCode::Char('h') | KeyCode::Left => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.editor.move_cursor(CursorMove::Back);
-        }
-        KeyCode::Char('j') | KeyCode::Down => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.editor.move_cursor(CursorMove::Down);
-        }
-        KeyCode::Char('k') | KeyCode::Up => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.editor.move_cursor(CursorMove::Up);
-        }
-        KeyCode::Char('l') | KeyCode::Right => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.editor.move_cursor(CursorMove::Forward);
-        }
-        KeyCode::Char('w') => {
-            if app.pending_operator == Some('d') {
-                // dw: delete word forward - highlight then delete on next key
-                app.pending_operator = None;
-                app.editor.cancel_selection();
-                app.editor.start_selection();
-                app.editor.move_cursor(CursorMove::WordForward);
-                app.pending_delete = Some(DeleteType::Word);
-            } else {
-                app.pending_operator = None;
-                app.editor.move_cursor(CursorMove::WordForward);
-            }
-        }
-        KeyCode::Char('b') => {
-            if app.pending_operator == Some('d') {
-                // db: delete word backward - highlight then delete on next key
-                app.pending_operator = None;
-                app.editor.cancel_selection();
-                app.editor.start_selection();
-                app.editor.move_cursor(CursorMove::WordBack);
-                app.pending_delete = Some(DeleteType::Word);
-            } else {
-                app.pending_operator = None;
-                app.editor.move_cursor(CursorMove::WordBack);
-            }
-        }
-        KeyCode::Char('0') => {
-            app.pending_operator = None;
+        KeyCode::Char('V') => {
+            app.vim.reset_pending();
+            app.vim_mode = VimMode::Visual;
             app.editor.cancel_selection();
             app.editor.move_cursor(CursorMove::Head);
-        }
-        KeyCode::Char('$') => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
+            app.editor.start_selection();
             app.editor.move_cursor(CursorMove::End);
         }
-        KeyCode::Char('g') => {
-            app.pending_operator = None;
+        KeyCode::Char('R') => {
+            // Replace mode
+            app.vim.reset_pending();
+            app.vim_mode = VimMode::Insert; // Use insert mode behavior, overwrite on char
             app.editor.cancel_selection();
-            app.editor.move_cursor(CursorMove::Top);
+        }
+        KeyCode::Char(':') => {
+            app.vim.enter_command_mode();
+        }
+
+        // Macros (q to record, @ to play)
+        KeyCode::Char('q') if key.modifiers.is_empty() => {
+            if app.vim.macros.is_recording() {
+                app.vim.macros.stop_recording();
+            } else {
+                app.vim.pending_macro = Some(PendingMacro::Record);
+            }
+        }
+        KeyCode::Char('@') => {
+            app.vim.pending_macro = Some(PendingMacro::Play);
+        }
+
+        // Marks (m to set, ` or ' to jump)
+        KeyCode::Char('m') if key.modifiers.is_empty() => {
+            app.vim.pending_mark = Some(PendingMark::Set);
+        }
+        KeyCode::Char('`') => {
+            app.vim.pending_mark = Some(PendingMark::GotoExact);
+        }
+        KeyCode::Char('\'') => {
+            app.vim.pending_mark = Some(PendingMark::GotoLine);
+        }
+
+        // Basic motions
+        KeyCode::Char('h') | KeyCode::Left => execute_motion_n(app, CursorMove::Back),
+        KeyCode::Char('j') | KeyCode::Down => execute_motion_n(app, CursorMove::Down),
+        KeyCode::Char('k') | KeyCode::Up => execute_motion_n(app, CursorMove::Up),
+        KeyCode::Char('l') | KeyCode::Right => execute_motion_n(app, CursorMove::Forward),
+
+        // Scrolling with Ctrl (must come before plain keys)
+        KeyCode::Char('b') if key.modifiers == KeyModifiers::CONTROL => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::PageUp);
+        }
+
+        // Word motions
+        KeyCode::Char('w') => execute_motion_or_operator(app, CursorMove::WordForward),
+        KeyCode::Char('W') => execute_motion_or_operator(app, CursorMove::BigWordForward),
+        KeyCode::Char('b') => execute_motion_or_operator(app, CursorMove::WordBack),
+        KeyCode::Char('B') => execute_motion_or_operator(app, CursorMove::BigWordBack),
+        KeyCode::Char('e') => execute_motion_or_operator(app, CursorMove::WordEndForward),
+        KeyCode::Char('E') => execute_motion_or_operator(app, CursorMove::BigWordEndForward),
+
+        // Line motions
+        KeyCode::Char('0') => execute_motion_or_operator(app, CursorMove::Head),
+        KeyCode::Char('^') => execute_motion_or_operator(app, CursorMove::FirstNonBlank),
+        KeyCode::Char('$') => execute_motion_or_operator(app, CursorMove::End),
+
+        // Document motions
+        KeyCode::Char('g') => {
+            app.vim.pending_g = true;
         }
         KeyCode::Char('G') => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.editor.move_cursor(CursorMove::Bottom);
+            if let Some(count) = app.vim.count.take() {
+                app.editor.move_cursor(CursorMove::GoToLine(count));
+            } else {
+                app.editor.move_cursor(CursorMove::Bottom);
+            }
+            app.vim.reset_pending();
         }
-        KeyCode::Char('x') => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.editor.delete_char();
+
+        // Paragraph motions
+        KeyCode::Char('{') => execute_motion_n(app, CursorMove::ParagraphBack),
+        KeyCode::Char('}') => execute_motion_n(app, CursorMove::ParagraphForward),
+
+        // Screen motions
+        KeyCode::Char('H') => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::ScreenTop);
         }
+        KeyCode::Char('M') => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::ScreenMiddle);
+        }
+        KeyCode::Char('L') => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::ScreenBottom);
+        }
+
+        // z commands (zz, zt, zb for scroll positioning)
+        KeyCode::Char('z') => {
+            app.vim.pending_z = true;
+        }
+
+        // Find char
+        KeyCode::Char('f') if key.modifiers.is_empty() => {
+            app.vim.pending_find = Some(PendingFind::new(true, false));
+        }
+        KeyCode::Char('F') => {
+            app.vim.pending_find = Some(PendingFind::new(false, false));
+        }
+        KeyCode::Char('t') if key.modifiers.is_empty() => {
+            app.vim.pending_find = Some(PendingFind::new(true, true));
+        }
+        KeyCode::Char('T') => {
+            app.vim.pending_find = Some(PendingFind::new(false, true));
+        }
+        KeyCode::Char(';') => {
+            if let Some(find) = app.vim.last_find {
+                let count = app.vim.get_count();
+                for _ in 0..count { execute_find(app, find); }
+            }
+            app.vim.reset_pending();
+        }
+        KeyCode::Char(',') => {
+            if let Some(find) = app.vim.last_find {
+                let count = app.vim.get_count();
+                for _ in 0..count { execute_find(app, find.reversed()); }
+            }
+            app.vim.reset_pending();
+        }
+
+        // Matching bracket
+        KeyCode::Char('%') => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::MatchingBracket);
+        }
+
+        // Scrolling
+        KeyCode::Char('u') if key.modifiers == KeyModifiers::CONTROL => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::HalfPageUp);
+        }
+        KeyCode::Char('d') if key.modifiers == KeyModifiers::CONTROL => {
+            app.vim.reset_pending();
+            app.editor.move_cursor(CursorMove::HalfPageDown);
+        }
+        KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
+            app.vim.reset_pending();
+            app.start_buffer_search();
+        }
+
+        // Operators
         KeyCode::Char('d') => {
             if app.pending_operator == Some('d') {
+                // dd: delete line
                 app.pending_operator = None;
-                app.editor.cancel_selection();
-                app.editor.move_cursor(CursorMove::Head);
-                app.editor.start_selection();
-                app.editor.move_cursor(CursorMove::End);
-                app.pending_delete = Some(DeleteType::Line);
+                let count = app.vim.get_count();
+                for _ in 0..count {
+                    app.editor.move_cursor(CursorMove::Head);
+                    app.editor.start_selection();
+                    app.editor.move_cursor(CursorMove::End);
+                    app.editor.cut();
+                    app.editor.delete_newline();
+                }
+                app.vim.last_change = Some(crate::vim::LastChange::DeleteLine(count));
+                app.vim.reset_pending();
             } else {
                 app.pending_operator = Some('d');
             }
         }
-        KeyCode::Char('y') => {
-            app.pending_operator = None;
-            // Yank current selection
+        KeyCode::Char('c') => {
+            if app.pending_operator == Some('c') {
+                // cc: change line
+                app.pending_operator = None;
+                app.editor.move_cursor(CursorMove::Head);
+                app.editor.start_selection();
+                app.editor.move_cursor(CursorMove::End);
+                app.editor.cut();
+                app.vim_mode = VimMode::Insert;
+                app.vim.reset_pending();
+            } else {
+                app.pending_operator = Some('c');
+            }
+        }
+        KeyCode::Char('y') if key.modifiers.is_empty() => {
+            if app.pending_operator == Some('y') {
+                // yy: yank line
+                app.pending_operator = None;
+                app.editor.move_cursor(CursorMove::Head);
+                app.editor.start_selection();
+                app.editor.move_cursor(CursorMove::End);
+                app.editor.copy();
+                app.editor.cancel_selection();
+                app.vim.reset_pending();
+            } else {
+                app.pending_operator = Some('y');
+            }
+        }
+        KeyCode::Char('>') => {
+            if app.pending_operator == Some('>') {
+                // >>: indent line
+                app.pending_operator = None;
+                let count = app.vim.get_count();
+                for _ in 0..count {
+                    app.editor.move_cursor(CursorMove::Head);
+                    app.editor.insert_str("    ");
+                }
+                app.vim.reset_pending();
+            } else {
+                app.pending_operator = Some('>');
+            }
+        }
+        KeyCode::Char('<') => {
+            if app.pending_operator == Some('<') {
+                // <<: outdent line
+                app.pending_operator = None;
+                // Simplified: remove up to 4 spaces from start
+                let count = app.vim.get_count();
+                for _ in 0..count {
+                    app.editor.move_cursor(CursorMove::Head);
+                    for _ in 0..4 {
+                        let pos = app.editor.cursor();
+                        if let Some(line) = app.editor.lines().get(pos.0) {
+                            if line.starts_with(' ') || line.starts_with('\t') {
+                                app.editor.delete_char();
+                            }
+                        }
+                    }
+                }
+                app.vim.reset_pending();
+            } else {
+                app.pending_operator = Some('<');
+            }
+        }
+
+        // Quick actions
+        KeyCode::Char('x') => {
+            let count = app.vim.get_count();
+            for _ in 0..count { app.editor.delete_char(); }
+            app.vim.last_change = Some(crate::vim::LastChange::DeleteCharForward(count));
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('X') => {
+            let count = app.vim.get_count();
+            for _ in 0..count { app.editor.delete_newline(); }
+            app.vim.last_change = Some(crate::vim::LastChange::DeleteCharBackward(count));
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('s') if key.modifiers.is_empty() => {
+            app.editor.delete_char();
+            app.vim_mode = VimMode::Insert;
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('S') => {
+            app.editor.move_cursor(CursorMove::Head);
+            app.editor.start_selection();
+            app.editor.move_cursor(CursorMove::End);
+            app.editor.cut();
+            app.vim_mode = VimMode::Insert;
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('D') => {
+            app.editor.start_selection();
+            app.editor.move_cursor(CursorMove::End);
+            app.editor.cut();
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('C') => {
+            app.editor.start_selection();
+            app.editor.move_cursor(CursorMove::End);
+            app.editor.cut();
+            app.vim_mode = VimMode::Insert;
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('Y') => {
+            app.editor.move_cursor(CursorMove::Head);
+            app.editor.start_selection();
+            app.editor.move_cursor(CursorMove::End);
             app.editor.copy();
-        }
-        KeyCode::Char('p') => {
-            app.pending_operator = None;
             app.editor.cancel_selection();
-            app.editor.paste();
+            app.vim.reset_pending();
         }
-        KeyCode::Char('u') => {
-            app.pending_operator = None;
+        KeyCode::Char('r') if key.modifiers.is_empty() => {
+            app.vim.awaiting_replace = true;
+        }
+        KeyCode::Char('J') => {
+            // Join lines
+            app.editor.move_cursor(CursorMove::End);
+            app.editor.delete_char();
+            app.editor.insert_char(' ');
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('~') => {
+            // Toggle case
+            let pos = app.editor.cursor();
+            if let Some(line) = app.editor.lines().get(pos.0) {
+                let chars: Vec<char> = line.chars().collect();
+                if let Some(&c) = chars.get(pos.1) {
+                    app.editor.delete_char();
+                    if c.is_uppercase() {
+                        app.editor.insert_char(c.to_lowercase().next().unwrap_or(c));
+                    } else {
+                        app.editor.insert_char(c.to_uppercase().next().unwrap_or(c));
+                    }
+                }
+            }
+            app.vim.reset_pending();
+        }
+
+        // Paste
+        KeyCode::Char('p') => {
+            app.editor.move_cursor(CursorMove::Forward);
+            app.editor.paste();
+            app.vim.reset_pending();
+        }
+        KeyCode::Char('P') => {
+            app.editor.paste();
+            app.vim.reset_pending();
+        }
+
+        // Undo/Redo
+        KeyCode::Char('u') if key.modifiers.is_empty() => {
+            app.vim.reset_pending();
             app.editor.cancel_selection();
             app.editor.undo();
         }
         KeyCode::Char('r') if key.modifiers == KeyModifiers::CONTROL => {
-            app.pending_operator = None;
+            app.vim.reset_pending();
             app.editor.cancel_selection();
             app.editor.redo();
         }
-        KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
-            // Open buffer search
-            app.pending_operator = None;
+
+        // Repeat last change (.)
+        KeyCode::Char('.') => {
+            if let Some(change) = app.vim.last_change.clone() {
+                repeat_last_change(app, change);
+            }
+            app.vim.reset_pending();
+        }
+
+        // Save/Exit
+        KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
+            app.vim.reset_pending();
             app.editor.cancel_selection();
-            app.start_buffer_search();
+            app.save_edit();
+            app.vim_mode = VimMode::Normal;
         }
         KeyCode::Esc => {
+            app.vim.reset_pending();
             app.pending_operator = None;
             app.editor.cancel_selection();
             if app.has_unsaved_changes() {
@@ -1627,14 +2086,171 @@ fn handle_vim_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) {
                 app.vim_mode = VimMode::Normal;
             }
         }
-        KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
-            app.pending_operator = None;
-            app.editor.cancel_selection();
-            app.save_edit();
-            app.vim_mode = VimMode::Normal;
+
+        // Search
+        KeyCode::Char('/') => {
+            app.vim.reset_pending();
+            app.start_buffer_search();
         }
+        KeyCode::Char('n') => {
+            app.vim.reset_pending();
+            // Next search result - handled by buffer search
+        }
+        KeyCode::Char('N') => {
+            app.vim.reset_pending();
+            // Prev search result - handled by buffer search
+        }
+        KeyCode::Char('*') => {
+            // Search word under cursor forward
+            app.vim.reset_pending();
+            // Get word under cursor and search
+        }
+        KeyCode::Char('#') => {
+            // Search word under cursor backward
+            app.vim.reset_pending();
+        }
+
         _ => {
+            app.vim.reset_pending();
             app.pending_operator = None;
+        }
+    }
+}
+
+/// Repeat the last change command (. dot command)
+fn repeat_last_change(app: &mut App, change: crate::vim::LastChange) {
+    use crate::vim::LastChange;
+    match change {
+        LastChange::DeleteLine(count) => {
+            for _ in 0..count {
+                app.editor.move_cursor(CursorMove::Head);
+                app.editor.start_selection();
+                app.editor.move_cursor(CursorMove::End);
+                app.editor.cut();
+                app.editor.delete_newline();
+            }
+        }
+        LastChange::DeleteCharForward(count) => {
+            for _ in 0..count {
+                app.editor.delete_char();
+            }
+        }
+        LastChange::DeleteCharBackward(count) => {
+            for _ in 0..count {
+                app.editor.delete_newline();
+            }
+        }
+        LastChange::ReplaceChar(c) => {
+            app.editor.delete_char();
+            app.editor.insert_char(c);
+            app.editor.move_cursor(CursorMove::Back);
+        }
+        LastChange::DeleteToEnd => {
+            app.editor.start_selection();
+            app.editor.move_cursor(CursorMove::End);
+            app.editor.cut();
+        }
+        LastChange::DeleteWordForward(count) => {
+            for _ in 0..count {
+                app.editor.start_selection();
+                app.editor.move_cursor(CursorMove::WordForward);
+                app.editor.cut();
+            }
+        }
+        LastChange::DeleteWordBackward(count) => {
+            for _ in 0..count {
+                app.editor.start_selection();
+                app.editor.move_cursor(CursorMove::WordBack);
+                app.editor.cut();
+            }
+        }
+        // These require insert mode text replay - complex, skip for now
+        LastChange::ChangeLine(_, _) |
+        LastChange::YankLine(_) |
+        LastChange::ChangeToEnd(_) |
+        LastChange::SubstituteChar(_) |
+        LastChange::Insert(_, _) |
+        LastChange::ChangeWord(_, _) => {
+            // TODO: Implement insert text replay
+        }
+    }
+}
+
+fn execute_motion_n(app: &mut App, movement: CursorMove) {
+    let count = app.vim.get_count();
+    app.vim.reset_pending();
+    app.editor.cancel_selection();
+    for _ in 0..count {
+        app.editor.move_cursor(movement);
+    }
+}
+
+fn execute_motion_or_operator(app: &mut App, movement: CursorMove) {
+    let count = app.vim.get_count();
+    if let Some(op) = app.pending_operator.take() {
+        app.editor.cancel_selection();
+        app.editor.start_selection();
+        for _ in 0..count { app.editor.move_cursor(movement); }
+        match op {
+            'd' => { app.editor.cut(); }
+            'c' => { app.editor.cut(); app.vim_mode = VimMode::Insert; }
+            'y' => { app.editor.copy(); app.editor.cancel_selection(); }
+            '>' => {
+                if let Some((start, _)) = app.editor.selection_range() {
+                    app.editor.cancel_selection();
+                    app.editor.set_cursor(start.row, 0);
+                    app.editor.insert_str("    ");
+                }
+            }
+            '<' => {
+                if let Some((start, _)) = app.editor.selection_range() {
+                    app.editor.cancel_selection();
+                    app.editor.set_cursor(start.row, 0);
+                    for _ in 0..4 {
+                        let pos = app.editor.cursor();
+                        if let Some(line) = app.editor.lines().get(pos.0) {
+                            if line.starts_with(' ') || line.starts_with('\t') {
+                                app.editor.delete_char();
+                            }
+                        }
+                    }
+                }
+            }
+            _ => { app.editor.cancel_selection(); }
+        }
+    } else {
+        app.editor.cancel_selection();
+        for _ in 0..count { app.editor.move_cursor(movement); }
+    }
+    app.vim.reset_pending();
+}
+
+fn execute_find(app: &mut App, find: FindState) {
+    let pos = app.editor.cursor();
+    if let Some(line) = app.editor.lines().get(pos.0) {
+        if let Some(new_col) = find.find_in_line(line, pos.1) {
+            app.editor.set_cursor(pos.0, new_col);
+        }
+    }
+}
+
+fn execute_text_object(app: &mut App, scope: TextObjectScope, obj: TextObject) {
+    let pos = app.editor.cursor();
+    let lines_owned = app.editor.lines();
+    let lines: Vec<&str> = lines_owned.iter().map(|s| &**s).collect();
+    let cursor_pos = crate::editor::Position::new(pos.0, pos.1);
+
+    if let Some((start, end)) = obj.find_bounds(scope, &lines, cursor_pos) {
+        if let Some(op) = app.pending_operator.take() {
+            app.editor.set_cursor(start.row, start.col);
+            app.editor.start_selection();
+            app.editor.set_cursor(end.row, end.col);
+            match op {
+                'd' => { app.editor.cut(); }
+                'c' => { app.editor.cut(); app.vim_mode = VimMode::Insert; }
+                'y' => { app.editor.copy(); app.editor.cancel_selection(); app.editor.set_cursor(start.row, start.col); }
+                _ => { app.editor.cancel_selection(); }
+            }
         }
     }
 }
@@ -1643,12 +2259,17 @@ fn handle_vim_insert_mode(app: &mut App, key: crossterm::event::KeyEvent) {
     match key.code {
         KeyCode::Esc => {
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
         }
         KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
             app.save_edit();
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
         }
         KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
+            app.vim.mode = VimModeNew::Normal;
             app.start_buffer_search();
         }
         KeyCode::Char('[') => {
@@ -1690,6 +2311,8 @@ fn handle_vim_visual_mode(app: &mut App, key: crossterm::event::KeyEvent) {
         KeyCode::Esc => {
             app.editor.cancel_selection();
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
         }
         KeyCode::Char('h') | KeyCode::Left => {
             app.editor.move_cursor(CursorMove::Back);
@@ -1725,22 +2348,136 @@ fn handle_vim_visual_mode(app: &mut App, key: crossterm::event::KeyEvent) {
             app.editor.copy();
             app.editor.cancel_selection();
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
         }
         KeyCode::Char('d') | KeyCode::Char('x') => {
             app.editor.cut();
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
         }
         KeyCode::Char('s') if key.modifiers == KeyModifiers::CONTROL => {
             app.editor.cancel_selection();
             app.save_edit();
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
         }
         KeyCode::Char('f') if key.modifiers == KeyModifiers::CONTROL => {
             // Open buffer search (cancel selection first)
             app.editor.cancel_selection();
             app.vim_mode = VimMode::Normal;
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
             app.start_buffer_search();
         }
         _ => {}
+    }
+}
+
+fn handle_vim_command_mode(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            // Cancel command mode
+            app.vim.command_buffer.clear();
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
+        }
+        KeyCode::Enter => {
+            // Execute command
+            let cmd = app.vim.command_buffer.clone();
+            app.vim.command_buffer.clear();
+            app.vim.mode = VimModeNew::Normal;
+            app.vim.reset_pending();
+
+            if let Some(command) = parse_command(&cmd) {
+                execute_vim_command(app, command);
+            }
+        }
+        KeyCode::Backspace => {
+            app.vim.command_buffer.pop();
+            // If buffer is empty, exit command mode
+            if app.vim.command_buffer.is_empty() {
+                app.vim.mode = VimModeNew::Normal;
+                app.vim.reset_pending();
+            }
+        }
+        KeyCode::Char(c) => {
+            app.vim.command_buffer.push(c);
+        }
+        _ => {}
+    }
+}
+
+fn execute_vim_command(app: &mut App, command: Command) {
+    match command {
+        Command::Write => {
+            app.save_edit();
+        }
+        Command::Quit => {
+            // Exit edit mode without saving
+            app.cancel_edit();
+        }
+        Command::WriteQuit => {
+            app.save_edit();
+        }
+        Command::ForceQuit => {
+            // Force quit without saving
+            app.cancel_edit();
+        }
+        Command::GoToLine(line) => {
+            // Go to specific line (1-indexed in vim)
+            let target_line = line.saturating_sub(1);
+            let total_lines = app.editor.lines().len();
+            if target_line < total_lines {
+                app.editor.move_cursor(CursorMove::Top);
+                for _ in 0..target_line {
+                    app.editor.move_cursor(CursorMove::Down);
+                }
+            }
+        }
+        Command::Substitute { pattern, replacement, flags } => {
+            // Simple substitute implementation
+            // First, collect all changes to make
+            let lines: Vec<String> = app.editor.lines().iter().map(|s| s.to_string()).collect();
+            let mut changes: Vec<(usize, String)> = Vec::new();
+
+            for (row, line) in lines.iter().enumerate() {
+                if line.contains(&pattern) {
+                    let new_line = if flags.global {
+                        line.replace(&pattern, &replacement)
+                    } else {
+                        line.replacen(&pattern, &replacement, 1)
+                    };
+                    if new_line != *line {
+                        changes.push((row, new_line));
+                        if !flags.global {
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Apply changes in reverse order to preserve line numbers
+            for (row, new_line) in changes.into_iter().rev() {
+                // Go to the line
+                app.editor.move_cursor(CursorMove::Top);
+                for _ in 0..row {
+                    app.editor.move_cursor(CursorMove::Down);
+                }
+                app.editor.move_cursor(CursorMove::Head);
+                // Select entire line and delete it
+                app.editor.start_selection();
+                app.editor.move_cursor(CursorMove::End);
+                app.editor.cut();
+                // Insert the new line content
+                for c in new_line.chars() {
+                    app.editor.insert_char(c);
+                }
+            }
+
+            app.update_editor_highlights();
+        }
     }
 }

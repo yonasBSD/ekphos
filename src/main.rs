@@ -1,10 +1,11 @@
 mod app;
 mod clipboard;
+mod config;
 mod editor;
 mod event;
 mod highlight;
-mod config;
 mod ui;
+mod vim;
 
 use std::env;
 use std::fs;
