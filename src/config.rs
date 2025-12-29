@@ -35,12 +35,15 @@ pub struct EditorConfig {
     pub left_padding: u16,
     #[serde(default = "default_right_padding")]
     pub right_padding: u16,
+    #[serde(default = "default_bidi_enabled")]
+    pub bidi_enabled: bool,
 }
 
 fn default_line_wrap() -> bool { true }
 fn default_tab_width() -> u16 { 4 }
 fn default_left_padding() -> u16 { 0 }
 fn default_right_padding() -> u16 { 1 }
+fn default_bidi_enabled() -> bool { true }
 
 impl Default for EditorConfig {
     fn default() -> Self {
@@ -49,6 +52,7 @@ impl Default for EditorConfig {
             tab_width: default_tab_width(),
             left_padding: default_left_padding(),
             right_padding: default_right_padding(),
+            bidi_enabled: default_bidi_enabled(),
         }
     }
 }

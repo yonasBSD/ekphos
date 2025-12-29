@@ -21,6 +21,8 @@ use ratatui::{
 };
 use unicode_width::UnicodeWidthChar;
 
+use crate::bidi::{self, BidiLine};
+
 #[inline]
 fn char_display_width(ch: char, tab_width: u16) -> u16 {
     if ch == '\t' {
@@ -184,6 +186,8 @@ pub struct Editor {
     wiki_link_ranges: Vec<WikiLinkRange>,
     wiki_link_valid_style: Style,
     wiki_link_invalid_style: Style,
+    // Bidirectional text support
+    bidi_enabled: bool,
 }
 
 impl Default for Editor {
@@ -215,6 +219,7 @@ impl Editor {
             wiki_link_ranges: Vec::new(),
             wiki_link_valid_style: Style::default().fg(Color::Cyan),
             wiki_link_invalid_style: Style::default().fg(Color::Red),
+            bidi_enabled: true,
         }
     }
 
@@ -242,6 +247,14 @@ impl Editor {
     pub fn set_padding(&mut self, left: u16, right: u16) {
         self.left_padding = left;
         self.right_padding = right;
+    }
+
+    pub fn set_bidi_enabled(&mut self, enabled: bool) {
+        self.bidi_enabled = enabled;
+    }
+
+    pub fn is_bidi_enabled(&self) -> bool {
+        self.bidi_enabled
     }
 
     pub fn line_wrap_enabled(&self) -> bool {
@@ -743,14 +756,59 @@ impl Editor {
         match movement {
             CursorMove::Forward => {
                 let line_len = self.buffer.line_len(pos.row);
-                if pos.col < line_len {
+                if self.bidi_enabled {
+                    // Move in visual order for bidi text
+                    if let Some(line) = self.buffer.line(pos.row) {
+                        let bidi_line = bidi::process_line(line);
+                        if bidi_line.has_rtl && pos.col < bidi_line.logical_to_visual.len() {
+                            let visual_col = bidi_line.logical_to_visual[pos.col];
+                            if visual_col + 1 < bidi_line.visual_to_logical.len() {
+                                // Move to next visual position
+                                let new_logical = bidi_line.visual_to_logical[visual_col + 1];
+                                self.cursor.move_to(pos.row, new_logical);
+                            } else if pos.row + 1 < line_count {
+                                // Move to next line
+                                self.cursor.move_to(pos.row + 1, 0);
+                            }
+                        } else {
+                            // No RTL or at end - use logical order
+                            if pos.col < line_len {
+                                self.cursor.move_to(pos.row, pos.col + 1);
+                            } else if pos.row + 1 < line_count {
+                                self.cursor.move_to(pos.row + 1, 0);
+                            }
+                        }
+                    }
+                } else if pos.col < line_len {
                     self.cursor.move_to(pos.row, pos.col + 1);
                 } else if pos.row + 1 < line_count {
                     self.cursor.move_to(pos.row + 1, 0);
                 }
             }
             CursorMove::Back => {
-                if pos.col > 0 {
+                if self.bidi_enabled {
+                    // Move in visual order for bidi text
+                    if let Some(line) = self.buffer.line(pos.row) {
+                        let bidi_line = bidi::process_line(line);
+                        if bidi_line.has_rtl && pos.col < bidi_line.logical_to_visual.len() {
+                            let visual_col = bidi_line.logical_to_visual[pos.col];
+                            if visual_col > 0 {
+                                let new_logical = bidi_line.visual_to_logical[visual_col - 1];
+                                self.cursor.move_to(pos.row, new_logical);
+                            } else if pos.row > 0 {
+                                let prev_len = self.buffer.line_len(pos.row - 1);
+                                self.cursor.move_to(pos.row - 1, prev_len);
+                            }
+                        } else {
+                            if pos.col > 0 {
+                                self.cursor.move_to(pos.row, pos.col - 1);
+                            } else if pos.row > 0 {
+                                let prev_len = self.buffer.line_len(pos.row - 1);
+                                self.cursor.move_to(pos.row - 1, prev_len);
+                            }
+                        }
+                    }
+                } else if pos.col > 0 {
                     self.cursor.move_to(pos.row, pos.col - 1);
                 } else if pos.row > 0 {
                     let prev_len = self.buffer.line_len(pos.row - 1);
@@ -1730,9 +1788,27 @@ impl Editor {
 
             let line = self.buffer.line(row).unwrap_or("");
             let is_cursor_line = row == cursor_pos.row;
-            let chars: Vec<char> = line.chars().collect();
 
-            if chars.is_empty() {
+            // Process bidi if enabled
+            let bidi_line = if self.bidi_enabled {
+                bidi::process_line(line)
+            } else {
+                // Create identity mapping for non-bidi mode
+                let len = line.chars().count();
+                let indices: Vec<usize> = (0..len).collect();
+                BidiLine {
+                    logical: line.to_string(),
+                    visual: line.to_string(),
+                    direction: bidi::TextDirection::Ltr,
+                    logical_to_visual: indices.clone(),
+                    visual_to_logical: indices,
+                    has_rtl: false,
+                }
+            };
+
+            let visual_chars: Vec<char> = bidi_line.visual.chars().collect();
+
+            if visual_chars.is_empty() {
                 if is_cursor_line {
                     if let Some(cell) = buf.cell_mut((content_start_x, screen_y)) {
                         cell.set_char(' ');
@@ -1743,22 +1819,47 @@ impl Editor {
                 continue;
             }
 
+            // Find cursor visual position
+            let cursor_visual_col = if is_cursor_line && cursor_pos.col < bidi_line.logical_to_visual.len() {
+                bidi_line.logical_to_visual[cursor_pos.col]
+            } else if is_cursor_line {
+                visual_chars.len()
+            } else {
+                usize::MAX
+            };
+
+            // Calculate line width for RTL alignment
+            let is_rtl = bidi_line.direction == bidi::TextDirection::Rtl;
+            let line_visual_width: u16 = visual_chars.iter()
+                .map(|&ch| char_display_width(ch, self.tab_width))
+                .sum();
+
             // Render line with wrapping
-            let mut col = 0;
+            let mut visual_col = 0;
             let mut is_wrapped_continuation = false;
-            while col < chars.len() {
+            while visual_col < visual_chars.len() {
                 if screen_y >= area.y + area.height {
                     return;
                 }
 
-                let mut x = content_start_x;
+                // For RTL lines, start from the right side
+                let mut x = if is_rtl && !is_wrapped_continuation {
+                    let available_width = content_end_x.saturating_sub(content_start_x);
+                    if line_visual_width < available_width {
+                        content_end_x.saturating_sub(line_visual_width)
+                    } else {
+                        content_start_x
+                    }
+                } else {
+                    content_start_x
+                };
 
-                if is_wrapped_continuation && col < chars.len() && chars[col] == ' ' {
-                    let is_cursor_on_space = is_cursor_line && col == cursor_pos.col;
+                if is_wrapped_continuation && visual_col < visual_chars.len() && visual_chars[visual_col] == ' ' {
+                    let is_cursor_on_space = is_cursor_line && visual_col == cursor_visual_col;
                     if !is_cursor_on_space {
-                        col += 1;
-                        if col >= chars.len() {
-                            if is_cursor_line && cursor_pos.col >= chars.len() {
+                        visual_col += 1;
+                        if visual_col >= visual_chars.len() {
+                            if is_cursor_line && cursor_pos.col >= bidi_line.logical.chars().count() {
                                 if let Some(cell) = buf.cell_mut((x, screen_y)) {
                                     cell.set_char(' ');
                                     cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
@@ -1770,10 +1871,18 @@ impl Editor {
                     }
                 }
 
-                while col < chars.len() && x < content_end_x {
-                    let ch = chars[col];
-                    let mut style = self.get_char_style(row, col, selection);
-                    let is_cursor = is_cursor_line && col == cursor_pos.col;
+                while visual_col < visual_chars.len() && x < content_end_x {
+                    let ch = visual_chars[visual_col];
+                    let logical_col = if visual_col < bidi_line.visual_to_logical.len() {
+                        bidi_line.visual_to_logical[visual_col]
+                    } else {
+                        visual_col
+                    };
+                    let mut style = self.get_char_style(row, logical_col, selection);
+                    if is_rtl {
+                        style = style.add_modifier(Modifier::BOLD);
+                    }
+                    let is_cursor = is_cursor_line && visual_col == cursor_visual_col;
                     if is_cursor {
                         style = style.add_modifier(Modifier::REVERSED);
                     }
@@ -1789,7 +1898,11 @@ impl Editor {
                                 if i == 0 && is_cursor {
                                     cell.set_style(style);
                                 } else {
-                                    cell.set_style(self.get_char_style(row, col, selection));
+                                    let mut tab_style = self.get_char_style(row, logical_col, selection);
+                                    if is_rtl {
+                                        tab_style = tab_style.add_modifier(Modifier::BOLD);
+                                    }
+                                    cell.set_style(tab_style);
                                 }
                             }
                             x += 1;
@@ -1801,14 +1914,24 @@ impl Editor {
                         }
                         x += ch_width;
                     }
-                    col += 1;
+                    visual_col += 1;
                 }
 
                 // Render cursor at end of line if cursor is past last char
                 // Use full area width to allow cursor in right padding
-                if is_cursor_line && cursor_pos.col >= chars.len() && col == chars.len() {
-                    if x < area.x + area.width {
-                        if let Some(cell) = buf.cell_mut((x, screen_y)) {
+                if is_cursor_line && cursor_pos.col >= bidi_line.logical.chars().count() && visual_col == visual_chars.len() {
+                    let cursor_x = if is_rtl && !is_wrapped_continuation {
+                        let available_width = content_end_x.saturating_sub(content_start_x);
+                        if line_visual_width < available_width {
+                            content_end_x.saturating_sub(line_visual_width).saturating_sub(1)
+                        } else {
+                            x
+                        }
+                    } else {
+                        x
+                    };
+                    if cursor_x < area.x + area.width && cursor_x >= area.x {
+                        if let Some(cell) = buf.cell_mut((cursor_x, screen_y)) {
                             cell.set_char(' ');
                             cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
                         }
@@ -1846,18 +1969,64 @@ impl Editor {
 
             let line = self.buffer.line(row).unwrap_or("");
             let is_cursor_line = row == cursor_pos.row;
-            let chars: Vec<char> = line.chars().collect();
+
+            let bidi_line = if self.bidi_enabled {
+                bidi::process_line(line)
+            } else {
+                let len = line.chars().count();
+                let indices: Vec<usize> = (0..len).collect();
+                BidiLine {
+                    logical: line.to_string(),
+                    visual: line.to_string(),
+                    direction: bidi::TextDirection::Ltr,
+                    logical_to_visual: indices.clone(),
+                    visual_to_logical: indices,
+                    has_rtl: false,
+                }
+            };
+
+            let visual_chars: Vec<char> = bidi_line.visual.chars().collect();
             let line_h_scroll = if is_cursor_line { h_scroll } else { 0 };
 
-            let mut x = content_start_x;
-            for col in line_h_scroll..chars.len() {
+            let is_rtl = bidi_line.direction == bidi::TextDirection::Rtl;
+            let line_visual_width: u16 = visual_chars.iter()
+                .map(|&ch| char_display_width(ch, self.tab_width))
+                .sum();
+
+            let cursor_visual_col = if is_cursor_line && cursor_pos.col < bidi_line.logical_to_visual.len() {
+                bidi_line.logical_to_visual[cursor_pos.col]
+            } else if is_cursor_line {
+                visual_chars.len()
+            } else {
+                usize::MAX
+            };
+
+            let mut x = if is_rtl {
+                let available_width = content_end_x.saturating_sub(content_start_x);
+                if line_visual_width < available_width {
+                    content_end_x.saturating_sub(line_visual_width)
+                } else {
+                    content_start_x
+                }
+            } else {
+                content_start_x
+            };
+            for visual_col in line_h_scroll..visual_chars.len() {
                 if x >= content_end_x {
                     break;
                 }
 
-                let ch = chars[col];
-                let mut style = self.get_char_style(row, col, selection);
-                let is_cursor = is_cursor_line && col == cursor_pos.col;
+                let ch = visual_chars[visual_col];
+                let logical_col = if visual_col < bidi_line.visual_to_logical.len() {
+                    bidi_line.visual_to_logical[visual_col]
+                } else {
+                    visual_col
+                };
+                let mut style = self.get_char_style(row, logical_col, selection);
+                if is_rtl {
+                    style = style.add_modifier(Modifier::BOLD);
+                }
+                let is_cursor = is_cursor_line && visual_col == cursor_visual_col;
                 if is_cursor {
                     style = style.add_modifier(Modifier::REVERSED);
                 }
@@ -1873,7 +2042,11 @@ impl Editor {
                             if i == 0 && is_cursor {
                                 cell.set_style(style);
                             } else {
-                                cell.set_style(self.get_char_style(row, col, selection));
+                                let mut tab_style = self.get_char_style(row, logical_col, selection);
+                                if is_rtl {
+                                    tab_style = tab_style.add_modifier(Modifier::BOLD);
+                                }
+                                cell.set_style(tab_style);
                             }
                         }
                         x += 1;
@@ -1887,9 +2060,19 @@ impl Editor {
                 }
             }
 
-            if is_cursor_line && cursor_pos.col >= chars.len() {
-                if x < area.x + area.width {
-                    if let Some(cell) = buf.cell_mut((x, y)) {
+            if is_cursor_line && cursor_pos.col >= bidi_line.logical.chars().count() {
+                let cursor_x = if is_rtl {
+                    let available_width = content_end_x.saturating_sub(content_start_x);
+                    if line_visual_width < available_width {
+                        content_end_x.saturating_sub(line_visual_width).saturating_sub(1)
+                    } else {
+                        x
+                    }
+                } else {
+                    x
+                };
+                if cursor_x < area.x + area.width && cursor_x >= area.x {
+                    if let Some(cell) = buf.cell_mut((cursor_x, y)) {
                         cell.set_char(' ');
                         cell.set_style(Style::default().add_modifier(Modifier::REVERSED));
                     }

@@ -1,4 +1,5 @@
 mod app;
+mod bidi;
 mod clipboard;
 mod config;
 mod editor;

@@ -135,7 +135,8 @@ The editor provides real-time markdown highlighting while you type:
 
 Connect your notes using wikilinks! Just type `[[Note Name]]` to link to another note.
 
-- Link to the demo note: [[Demo Note]]
+- Link to the demo note: [[02-Demo Note]]
+- Check out RTL support: [[03-RTL Demo]]
 - Valid links appear in cyan, invalid links in red
 - Press `Space` on a wikilink to navigate to that note
 - In edit mode, type `[[` to get autocomplete suggestions
@@ -289,7 +290,7 @@ This is a demo note to showcase wikilinks!
 
 Wikilinks let you connect your notes together, creating a personal knowledge base.
 
-You can link back to [[Getting Started]] to see the main documentation.
+You can link back to [[01-Getting Started]] to see the main documentation.
 
 ## Ideas
 
@@ -308,6 +309,138 @@ Here are some ways to use wikilinks:
 4. Press `Space` on any wikilink to navigate
 
 Happy linking!"#;
+
+const RTL_DEMO_CONTENT: &str = r#"# RTL Demo
+
+Ekphos supports right-to-left (RTL) languages with full Unicode Bidirectional Algorithm (UAX #9) support.
+
+## Arabic (العربية)
+
+مرحبا بك في إيكفوس! هذا محرر نصوص يدعم اللغة العربية بشكل كامل.
+
+### مميزات الدعم العربي
+
+- الكتابة من اليمين إلى اليسار
+- حركة المؤشر بشكل طبيعي
+- دعم النصوص المختلطة
+
+## Hebrew (עברית)
+
+שלום וברוכים הבאים! אקפוס תומך בשפה העברית.
+
+### תכונות
+
+- כתיבה מימין לשמאל
+- תנועת סמן טבעית
+- תמיכה בטקסט מעורב
+
+## Persian (فارسی)
+
+به اکفوس خوش آمدید! این ویرایشگر از زبان فارسی پشتیبانی می‌کند.
+
+## Markdown Syntax with RTL (تنسيق Markdown)
+
+### Text Formatting (تنسيق النص)
+
+هذا نص عادي بدون تنسيق.
+
+**هذا نص عريض** - Bold text adds underline in RTL
+
+*هذا نص مائل* - Italic text
+
+~~هذا نص مشطوب~~ - Strikethrough text
+
+`هذا كود مضمن` - Inline code
+
+### Lists (القوائم)
+
+- العنصر الأول في القائمة
+- العنصر الثاني مع **نص عريض**
+- العنصر الثالث مع *نص مائل*
+- العنصر الرابع مع `كود`
+
+1. البند رقم واحد
+2. البند رقم اثنان
+3. البند رقم ثلاثة
+
+### Task Lists (قوائم المهام)
+
+- [ ] مهمة غير مكتملة
+- [x] مهمة مكتملة
+- [ ] مهمة أخرى مع **نص عريض**
+
+### Blockquotes (الاقتباسات)
+
+> هذا اقتباس باللغة العربية.
+> يمكن أن يمتد على عدة أسطر.
+
+### Links (الروابط)
+
+[رابط إلى موقع](https://example.com)
+
+[[01-Getting Started]] - Wiki link
+
+### Code Blocks (كتل الكود)
+
+```python
+# هذا تعليق بالعربية
+def مرحبا():
+    print("مرحبا بالعالم")
+```
+
+### Tables (الجداول)
+
+| العمود الأول | العمود الثاني | العمود الثالث |
+|-------------|--------------|--------------|
+| قيمة ١ | قيمة ٢ | قيمة ٣ |
+| بيانات | معلومات | نتائج |
+
+### Hebrew Examples (דוגמאות בעברית)
+
+**טקסט מודגש** - Bold Hebrew text
+
+*טקסט נטוי* - Italic Hebrew text
+
+- פריט ראשון ברשימה
+- פריט שני עם **הדגשה**
+- פריט שלישי עם *נטוי*
+
+> ציטוט בעברית עם **טקסט מודגש** בתוכו.
+
+## Mixed Text Examples
+
+Ekphos handles mixed LTR/RTL text naturally:
+
+- English with Arabic: Hello مرحبا World عالم
+- Hebrew in sentence: The word שלום means peace
+- Numbers in RTL: العدد 123 والعدد 456
+- Mixed formatting: **Bold English** and **نص عربي عريض**
+
+## How It Works
+
+- **Auto-detection**: Text direction is detected per-line
+- **Right alignment**: RTL lines are aligned to the right
+- **Bold styling**: RTL text is bold for readability; **explicit bold** adds underline
+- **Visual cursor**: Arrow keys move in visual order
+
+## Configuration
+
+RTL support is enabled by default. To disable:
+
+```toml
+[editor]
+bidi_enabled = false
+```
+
+## Tips
+
+- Press `e` to enter edit mode and try typing RTL text
+- Use arrow keys to navigate - they move visually, not logically
+- The cursor appears at the correct visual position
+
+---
+
+See [[01-Getting Started]] for more features!"#;
 
 #[derive(Debug, Clone)]
 pub struct Note {
@@ -653,6 +786,7 @@ impl App {
         editor.set_line_wrap(config.editor.line_wrap);
         editor.set_tab_width(config.editor.tab_width);
         editor.set_padding(config.editor.left_padding, config.editor.right_padding);
+        editor.set_bidi_enabled(config.editor.bidi_enabled);
         editor.set_block(
             Block::default()
                 .borders(Borders::ALL)
@@ -989,6 +1123,7 @@ impl App {
         self.editor.set_line_wrap(self.config.editor.line_wrap);
         self.editor.set_tab_width(self.config.editor.tab_width);
         self.editor.set_padding(self.config.editor.left_padding, self.config.editor.right_padding);
+        self.editor.set_bidi_enabled(self.config.editor.bidi_enabled);
         self.editor.set_block(
             Block::default()
                 .borders(Borders::ALL)
@@ -1484,8 +1619,9 @@ impl App {
         let notes_path = self.config.notes_path();
         let _ = fs::create_dir_all(&notes_path);
 
-        let _ = fs::write(notes_path.join("Demo Note.md"), DEMO_NOTE_CONTENT);
-        let _ = fs::write(notes_path.join("Getting Started.md"), GETTING_STARTED_CONTENT);
+        let _ = fs::write(notes_path.join("01-Getting Started.md"), GETTING_STARTED_CONTENT);
+        let _ = fs::write(notes_path.join("02-Demo Note.md"), DEMO_NOTE_CONTENT);
+        let _ = fs::write(notes_path.join("03-RTL Demo.md"), RTL_DEMO_CONTENT);
         self.dialog = DialogState::None;
         self.load_notes_from_dir();
 

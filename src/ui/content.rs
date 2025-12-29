@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph, Wrap},
@@ -10,6 +10,7 @@ use ratatui::{
 use ratatui_image::StatefulImage;
 
 use crate::app::{App, ContentItem, Focus, ImageState, Mode};
+use crate::bidi;
 use crate::config::Theme;
 
 pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
@@ -960,6 +961,18 @@ fn normalize_whitespace(text: &str) -> String {
     result
 }
 
+/// Process text for bidirectional display, reordering RTL text as needed
+fn process_bidi_text(text: &str) -> String {
+    let bidi_line = bidi::process_line(text);
+    bidi_line.visual
+}
+
+/// Check if text should be right-aligned (RTL)
+fn is_rtl_text(text: &str) -> bool {
+    let bidi_line = bidi::process_line(text);
+    bidi_line.direction == bidi::TextDirection::Rtl
+}
+
 fn render_content_line<F>(
     f: &mut Frame,
     theme: &Theme,
@@ -980,10 +993,11 @@ fn render_content_line<F>(
     let content_theme = &theme.content;
     let styled_line = if line.starts_with("###### ") {
         // H6: Smallest, italic, subtle
+        let content = process_bidi_text(line.trim_start_matches("###### "));
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled(
-                line.trim_start_matches("###### "),
+                content,
                 Style::default()
                     .fg(content_theme.text)
                     .add_modifier(Modifier::ITALIC),
@@ -991,10 +1005,11 @@ fn render_content_line<F>(
         ])
     } else if line.starts_with("##### ") {
         // H5: Small, muted color
+        let content = process_bidi_text(line.trim_start_matches("##### "));
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled(
-                line.trim_start_matches("##### "),
+                content,
                 Style::default()
                     .fg(content_theme.heading4)
                     .add_modifier(Modifier::BOLD),
@@ -1002,11 +1017,12 @@ fn render_content_line<F>(
         ])
     } else if line.starts_with("#### ") {
         // H4: Small prefix
+        let content = process_bidi_text(line.trim_start_matches("#### "));
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled("› ", Style::default().fg(content_theme.heading4)),
             Span::styled(
-                line.trim_start_matches("#### "),
+                content,
                 Style::default()
                     .fg(content_theme.heading4)
                     .add_modifier(Modifier::BOLD),
@@ -1014,11 +1030,12 @@ fn render_content_line<F>(
         ])
     } else if line.starts_with("### ") {
         // H3: Medium prefix
+        let content = process_bidi_text(line.trim_start_matches("### "));
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled("▸ ", Style::default().fg(content_theme.heading3)),
             Span::styled(
-                line.trim_start_matches("### "),
+                content,
                 Style::default()
                     .fg(content_theme.heading3)
                     .add_modifier(Modifier::BOLD),
@@ -1026,11 +1043,12 @@ fn render_content_line<F>(
         ])
     } else if line.starts_with("## ") {
         // H2: Larger prefix
+        let content = process_bidi_text(line.trim_start_matches("## "));
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled("■ ", Style::default().fg(content_theme.heading2)),
             Span::styled(
-                line.trim_start_matches("## "),
+                content,
                 Style::default()
                     .fg(content_theme.heading2)
                     .add_modifier(Modifier::BOLD),
@@ -1038,11 +1056,12 @@ fn render_content_line<F>(
         ])
     } else if line.starts_with("# ") {
         // H1: Largest, most prominent
+        let content = process_bidi_text(line.trim_start_matches("# ")).to_uppercase();
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled("◆ ", Style::default().fg(content_theme.heading1)),
             Span::styled(
-                line.trim_start_matches("# ").to_uppercase(),
+                content,
                 Style::default()
                     .fg(content_theme.heading1)
                     .add_modifier(Modifier::BOLD),
@@ -1059,11 +1078,12 @@ fn render_content_line<F>(
         Line::from(spans)
     } else if line.starts_with("> ") {
         // Blockquote
+        let content = process_bidi_text(line.trim_start_matches("> "));
         Line::from(vec![
             Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
             Span::styled("┃ ", Style::default().fg(content_theme.blockquote)),
             Span::styled(
-                line.trim_start_matches("> "),
+                content,
                 Style::default().fg(content_theme.blockquote).add_modifier(Modifier::ITALIC),
             ),
         ])
@@ -1109,16 +1129,47 @@ fn render_content_line<F>(
         Style::default()
     };
 
+    // Check if the line is RTL for alignment
+    let is_rtl = is_rtl_text(line);
+    let alignment = if is_rtl {
+        Alignment::Right
+    } else {
+        Alignment::Left
+    };
+
+    // Right padding to balance left padding from cursor indicator
+    let right_padding: u16 = 2; // Same as "▶ " or "  "
+
     for (i, wrapped_line) in wrapped_lines.iter().enumerate() {
-        let line_area = Rect {
+        let full_area = Rect {
             x: area.x,
             y: area.y.saturating_add(i as u16),
             width: area.width,
             height: 1,
         };
-        if line_area.y < area.y + area.height {
-            let paragraph = Paragraph::new(wrapped_line.clone()).style(bg_style);
-            f.render_widget(paragraph, line_area);
+        let content_area = Rect {
+            x: area.x,
+            y: area.y.saturating_add(i as u16),
+            width: area.width.saturating_sub(right_padding),
+            height: 1,
+        };
+        if full_area.y < area.y + area.height {
+            if is_cursor {
+                let bg_paragraph = Paragraph::new("").style(bg_style);
+                f.render_widget(bg_paragraph, full_area);
+            }
+            let line_to_render = if is_rtl {
+                let bold_spans: Vec<Span> = wrapped_line.spans.iter().map(|span| {
+                    Span::styled(span.content.clone(), span.style.add_modifier(Modifier::BOLD))
+                }).collect();
+                Line::from(bold_spans)
+            } else {
+                wrapped_line.clone()
+            };
+            let paragraph = Paragraph::new(line_to_render)
+                .style(bg_style)
+                .alignment(alignment);
+            f.render_widget(paragraph, content_area);
         }
     }
 }
