@@ -558,6 +558,8 @@ pub enum VimMode {
     Normal,
     Insert,
     Visual,
+    VisualLine,
+    VisualBlock,
 }
 
 /// Context menu state for right-click actions
@@ -616,6 +618,13 @@ pub struct BufferSearchMatch {
     pub end_col: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum SearchDirection {
+    #[default]
+    Forward,
+    Backward,
+}
+
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct BufferSearchState {
     pub active: bool,
@@ -623,6 +632,7 @@ pub struct BufferSearchState {
     pub matches: Vec<BufferSearchMatch>,
     pub current_match_index: usize,
     pub case_sensitive: bool,
+    pub direction: SearchDirection,
 }
 
 impl BufferSearchState {
@@ -659,6 +669,7 @@ impl BufferSearchState {
         self.query.clear();
         self.matches.clear();
         self.current_match_index = 0;
+        self.direction = SearchDirection::Forward;
     }
 }
 
@@ -758,6 +769,8 @@ pub struct App {
     pub outline_state: ListState,
     pub vim_mode: VimMode,
     pub vim: VimState,
+    pub visual_line_anchor: Option<usize>,
+    pub visual_line_current: Option<usize>,
     pub content_cursor: usize,
     pub content_scroll_offset: usize,
     pub floating_cursor_mode: bool,
@@ -901,6 +914,8 @@ impl App {
             outline_state: ListState::default(),
             vim_mode: VimMode::Normal,
             vim: VimState::new(),
+            visual_line_anchor: None,
+            visual_line_current: None,
             content_cursor: 0,
             content_scroll_offset: 0,
             floating_cursor_mode: false,
@@ -1047,6 +1062,8 @@ impl App {
             outline_state: ListState::default(),
             vim_mode: VimMode::Normal,
             vim: VimState::new(),
+            visual_line_anchor: None,
+            visual_line_current: None,
             content_cursor: 0,
             content_scroll_offset: 0,
             floating_cursor_mode: false,
@@ -2761,6 +2778,7 @@ impl App {
                     self.toggle_folder(path.clone());
                 }
                 SidebarItemKind::Note { .. } => {
+                    self.toggle_focus(false);
                 }
             }
         }
@@ -2892,10 +2910,19 @@ impl App {
     }
 
     pub fn start_buffer_search(&mut self) {
+        self.start_buffer_search_with_direction(SearchDirection::Forward);
+    }
+
+    pub fn start_buffer_search_backward(&mut self) {
+        self.start_buffer_search_with_direction(SearchDirection::Backward);
+    }
+
+    pub fn start_buffer_search_with_direction(&mut self, direction: SearchDirection) {
         self.buffer_search.active = true;
         self.buffer_search.query.clear();
         self.buffer_search.matches.clear();
         self.buffer_search.current_match_index = 0;
+        self.buffer_search.direction = direction;
     }
 
     pub fn end_buffer_search(&mut self) {
@@ -3172,6 +3199,8 @@ impl App {
                 VimMode::Normal => "NORMAL",
                 VimMode::Insert => "INSERT",
                 VimMode::Visual => "VISUAL",
+                VimMode::VisualLine => "V-LINE",
+                VimMode::VisualBlock => "V-BLOCK",
             }
         };
         let pending_str = match (&self.pending_delete, self.pending_operator) {
@@ -3187,7 +3216,9 @@ impl App {
                 (None, VimMode::Normal) if self.pending_operator.is_some() => self.theme.warning,
                 (None, VimMode::Normal) => self.theme.primary,
                 (None, VimMode::Insert) => self.theme.success,
-                (None, VimMode::Visual) => self.theme.secondary,
+                (None, VimMode::Visual | VimMode::VisualLine | VimMode::VisualBlock) => {
+                    self.theme.secondary
+                }
             }
         };
         let hint = if is_command_mode {
@@ -3195,7 +3226,9 @@ impl App {
         } else {
             match (&self.pending_delete, self.vim_mode) {
                 (Some(_), _) => "d: Confirm, Esc: Cancel",
-                (None, VimMode::Visual) => "y: Yank, d: Delete, Esc: Cancel",
+                (None, VimMode::Visual | VimMode::VisualLine | VimMode::VisualBlock) => {
+                    "y: Yank, d: Delete, Esc: Cancel"
+                }
                 (None, _) if self.pending_operator == Some('d') => "d: Line, w: Word→, b: Word←",
                 _ => "Ctrl+S: Save, Esc: Exit",
             }
