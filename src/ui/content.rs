@@ -66,6 +66,54 @@ fn extract_inline_images(text: &str) -> Vec<String> {
 }
 
 pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
+    // pre-compute code block highlights for proper syntax state tracking.
+    // computed up front (before the layout/height pass) so code-line heights can
+    // be measured from the exact same spans the renderer wraps, see the
+    // CodeLine arm of get_item_height.
+    let code_block_highlights: std::collections::HashMap<usize, Vec<Span<'static>>> = {
+        app.ensure_highlighter();
+        let highlighter = app.get_highlighter();
+        let mut highlights = std::collections::HashMap::new();
+
+        if let Some(hl) = highlighter {
+            let mut block_start: Option<(usize, String)> = None;
+
+            for (i, item) in app.content_items.iter().enumerate() {
+                match item {
+                    ContentItem::CodeFence(lang) => {
+                        if let Some((start_idx, block_lang)) = block_start.take() {
+                            let mut lines: Vec<(usize, String)> = Vec::new();
+                            for j in (start_idx + 1)..i {
+                                if let ContentItem::CodeLine(line) = &app.content_items[j] {
+                                    lines.push((j, expand_tabs(line)));
+                                }
+                            }
+
+                            if !lines.is_empty() && !block_lang.is_empty() {
+                                let block_content: String = lines.iter()
+                                    .map(|(_, l)| l.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join("\n");
+
+                                let highlighted = hl.highlight_block(&block_content, &block_lang);
+                                for (line_idx, (item_idx, _)) in lines.iter().enumerate() {
+                                    if let Some(spans) = highlighted.get(line_idx) {
+                                        highlights.insert(*item_idx, spans.clone());
+                                    }
+                                }
+                            }
+                        } else {
+                            block_start = Some((i, lang.clone()));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        highlights
+    };
+
     let is_focused = app.focus == Focus::Content && app.mode == Mode::Normal;
     // Skip rendering images when dialog is active to prevent terminal graphics artifacts
     let skip_images = app.dialog != DialogState::None || app.show_welcome;
@@ -167,7 +215,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     let details_states = &app.details_open_states;
-    let get_item_height = |item: &ContentItem| -> u16 {
+    let get_item_height = |idx: usize, item: &ContentItem| -> u16 {
         match item {
             ContentItem::TextLine(line) => {
                 let base_height = calc_wrapped_height(line, 4);
@@ -179,7 +227,10 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                 }
             }
             ContentItem::Image(_) => 8u16,
-            ContentItem::CodeLine(line) => calc_wrapped_height(line, 6),
+            ContentItem::CodeLine(line) => {
+                code_line_height(line, code_block_highlights.get(&idx), inner_area.width, theme)
+                    .min(max_item_height)
+            }
             ContentItem::CodeFence(_) => 1u16,
             ContentItem::TaskItem { text, .. } => {
                 let base_height = calc_wrapped_height(text, 6);
@@ -245,7 +296,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             if !app.is_content_item_visible(i) {
                 continue;
             }
-            let item_height = get_item_height(item);
+            let item_height = get_item_height(i, item);
             if height_from_offset + item_height > inner_area.height {
                 break;
             }
@@ -263,7 +314,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                     continue;
                 }
                 if i <= cursor {
-                    cumulative_height += get_item_height(item);
+                    cumulative_height += get_item_height(i, item);
                 }
                 if i == cursor {
                     break;
@@ -279,7 +330,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                 if i > cursor {
                     break;
                 }
-                height_so_far += get_item_height(item);
+                height_so_far += get_item_height(i, item);
                 if cumulative_height - height_so_far <= inner_area.height {
                     new_offset = i + 1;
                     break;
@@ -299,7 +350,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             if !app.is_content_item_visible(i) {
                 continue;
             }
-            let item_height = get_item_height(item);
+            let item_height = get_item_height(i, item);
             if first_page_height + item_height > inner_area.height {
                 break;
             }
@@ -318,7 +369,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                 if !app.is_content_item_visible(i) {
                     continue;
                 }
-                let item_height = get_item_height(&app.content_items[i]);
+                let item_height = get_item_height(i, &app.content_items[i]);
                 if height_from_cursor + item_height > inner_area.height {
                     break;
                 }
@@ -343,7 +394,7 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
         if total_height >= inner_area.height {
             break;
         }
-        let item_height = get_item_height(item);
+        let item_height = get_item_height(i, item);
         constraints.push(Constraint::Length(item_height));
         visible_indices.push(i);
         total_height += item_height;
@@ -367,51 +418,6 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             app.content_item_rects.push((item_idx, chunks[chunk_idx]));
         }
     }
-
-    // Pre-compute code block highlights for proper syntax state tracking
-    let code_block_highlights: std::collections::HashMap<usize, Vec<Span<'static>>> = {
-        app.ensure_highlighter();
-        let highlighter = app.get_highlighter();
-        let mut highlights = std::collections::HashMap::new();
-
-        if let Some(hl) = highlighter {
-            let mut block_start: Option<(usize, String)> = None; 
-
-            for (i, item) in app.content_items.iter().enumerate() {
-                match item {
-                    ContentItem::CodeFence(lang) => {
-                        if let Some((start_idx, block_lang)) = block_start.take() {
-                            let mut lines: Vec<(usize, String)> = Vec::new();
-                            for j in (start_idx + 1)..i {
-                                if let ContentItem::CodeLine(line) = &app.content_items[j] {
-                                    lines.push((j, expand_tabs(line)));
-                                }
-                            }
-
-                            if !lines.is_empty() && !block_lang.is_empty() {
-                                let block_content: String = lines.iter()
-                                    .map(|(_, l)| l.as_str())
-                                    .collect::<Vec<_>>()
-                                    .join("\n");
-
-                                let highlighted = hl.highlight_block(&block_content, &block_lang);
-                                for (line_idx, (item_idx, _)) in lines.iter().enumerate() {
-                                    if let Some(spans) = highlighted.get(line_idx) {
-                                        highlights.insert(*item_idx, spans.clone());
-                                    }
-                                }
-                            }
-                        } else {
-                            block_start = Some((i, lang.clone()));
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        highlights
-    };
 
     for (chunk_idx, &item_idx) in visible_indices.iter().enumerate() {
         if chunk_idx >= chunks.len() {
@@ -1839,6 +1845,33 @@ fn normalize_whitespace(text: &str) -> String {
     result
 }
 
+/// Number of visual rows a code line occupies once wrapped. Built from the exact
+/// same spans and wrap routine as `render_code_line`, so the layout's row budget
+/// always matches what gets drawn.
+///
+/// `calc_wrapped_height` (used for prose) can't stand in here: it collapses
+/// internal whitespace runs and assumes a narrower content width, so for code
+/// with aligned trailing comments followed by wide (CJK) text it under-counted
+/// rows and the renderer clipped the wrapped tail (issue #59).
+fn code_line_height(
+    line: &str,
+    highlight: Option<&Vec<Span<'static>>>,
+    inner_width: u16,
+    theme: &Theme,
+) -> u16 {
+    let mut spans = vec![
+        Span::styled("  ", Style::default()),
+        Span::styled("│ ", Style::default()),
+    ];
+    if let Some(hl) = highlight {
+        spans.extend(hl.iter().cloned());
+    } else {
+        spans.push(Span::styled(expand_tabs(line), Style::default()));
+    }
+    let available_width = (inner_width as usize).saturating_sub(1);
+    (wrap_line_for_cursor(spans, available_width, theme).len() as u16).max(1)
+}
+
 fn render_content_line<F>(
     f: &mut Frame,
     theme: &Theme,
@@ -2929,5 +2962,60 @@ mod tests {
         let lines = distribute_spans_across_lines(spans, 31, plain_color());
         assert_eq!(lines.len(), 1, "got {:?}", lines.iter().map(|l| line_text(l)).collect::<Vec<_>>());
         assert_eq!(line_text(&lines[0]), "two kernels: gate+up, then down");
+    }
+
+    // Issue #59: a code line whose aligned trailing comment is wide CJK text wraps to
+    // multiple rows. The layout row budget must equal what render_code_line actually
+    // draws, or the wrapped tail is clipped and the comment text vanishes in view mode.
+    fn cjk_aligned_comment_line() -> String {
+        // `return view;` + alignment padding + a wide CJK trailing comment.
+        format!(
+            "    return view;{}// 3. 函数结束，str 被销毁，view 变成了悬垂指针",
+            " ".repeat(30)
+        )
+    }
+
+    #[test]
+    fn code_line_height_matches_rendered_rows() {
+        let theme = Theme::default();
+        let line = cjk_aligned_comment_line();
+        // Width chosen so the alignment padding still fits on row 1 (the renderer keeps
+        // it, pushing the comment to wrap). The old calc_wrapped_height collapsed that
+        // padding and budgeted a single row here — the regression this guards.
+        let inner_width: u16 = 70;
+
+        // Spans built exactly as render_code_line does for an un-highlighted line.
+        let spans = vec![
+            plain("  "),
+            Span::styled("│ ", Style::default()),
+            Span::styled(expand_tabs(&line), Style::default()),
+        ];
+        let rendered_rows = wrap_line_for_cursor(spans, inner_width as usize - 1, &theme).len();
+
+        assert!(rendered_rows >= 2, "scenario must wrap to multiple rows, got {rendered_rows}");
+        assert_eq!(
+            code_line_height(&line, None, inner_width, &theme) as usize,
+            rendered_rows,
+            "row budget must equal the rendered row count, else the wrapped tail is clipped",
+        );
+    }
+
+    #[test]
+    fn code_line_wrap_preserves_cjk_tail() {
+        let theme = Theme::default();
+        let line = cjk_aligned_comment_line();
+        let spans = vec![
+            plain("  "),
+            Span::styled("│ ", Style::default()),
+            Span::styled(expand_tabs(&line), Style::default()),
+        ];
+        let joined: String = wrap_line_for_cursor(spans, 59, &theme)
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .map(|s| s.content.as_ref())
+            .collect();
+
+        assert!(joined.contains("函数结束"), "wrap lost the CJK head: {joined:?}");
+        assert!(joined.contains("变成了悬垂指针"), "wrap lost the CJK tail: {joined:?}");
     }
 }
