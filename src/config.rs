@@ -31,6 +31,8 @@ pub struct Config {
     pub check_updates: bool,
     #[serde(default = "default_transparent_bg")]
     pub transparent_bg: bool,
+    #[serde(default = "default_floating_cursor")]
+    pub floating_cursor: bool,
     #[serde(default)]
     pub editor: EditorConfig,
 }
@@ -92,6 +94,7 @@ fn default_frontmatter_hidden() -> bool { true }
 fn default_show_tags() -> bool { true }
 fn default_check_updates() -> bool { true }
 fn default_transparent_bg() -> bool { false }
+fn default_floating_cursor() -> bool { false }
 
 impl Default for Config {
     fn default() -> Self {
@@ -108,6 +111,7 @@ impl Default for Config {
             show_tags: default_show_tags(),
             check_updates: default_check_updates(),
             transparent_bg: default_transparent_bg(),
+            floating_cursor: default_floating_cursor(),
             editor: EditorConfig::default(),
         }
     }
