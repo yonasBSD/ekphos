@@ -300,7 +300,7 @@ pub enum ContentItem {
     Image(String),
     CodeLine(String),
     CodeFence(String),
-    TaskItem { text: String, checked: bool, line_index: usize },
+    TaskItem { text: String, checked: bool, line_index: usize, indent: usize },
     TableRow { cells: Vec<String>, is_separator: bool, is_header: bool, column_widths: Vec<usize>, alignments: Vec<Alignment> },
     Details { summary: String, content_lines: Vec<String>, id: usize },
     FrontmatterLine { key: String, value: String },
@@ -2193,7 +2193,8 @@ impl App {
                 if trimmed.starts_with("- [ ] ") || trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ") {
                     let checked = trimmed.starts_with("- [x] ") || trimmed.starts_with("- [X] ");
                     let text = trimmed[6..].to_string();
-                    self.content_items.push(ContentItem::TaskItem { text, checked, line_index });
+                    let indent = line.chars().count() - trimmed.chars().count();
+                    self.content_items.push(ContentItem::TaskItem { text, checked, line_index, indent });
                     self.content_item_source_lines.push(line_index);
                     i += 1;
                     continue;
@@ -3156,7 +3157,7 @@ impl App {
                 }
                 len
             }
-            Some(ContentItem::TaskItem { .. }) => 6,
+            Some(ContentItem::TaskItem { indent, .. }) => 6 + indent,
             Some(ContentItem::TableRow { .. }) => 3, // "  " cursor indicator + "│" left border
             _ => 2,
         }
@@ -3182,16 +3183,13 @@ impl App {
         }
     }
 
-    pub fn item_is_task_at(&self, index: usize) -> bool {
-        matches!(self.content_items.get(index), Some(ContentItem::TaskItem { .. }))
-    }
-
     pub fn is_click_on_task_checkbox(&self, index: usize, col: u16, content_x: u16) -> bool {
-        if !self.item_is_task_at(index) {
-            return false;
-        }
+        let indent = match self.content_items.get(index) {
+            Some(ContentItem::TaskItem { indent, .. }) => *indent,
+            _ => return false,
+        };
         let click_col = col.saturating_sub(content_x) as usize;
-        click_col >= 2 && click_col <= 4
+        click_col >= 2 + indent && click_col <= 4 + indent
     }
 
     pub fn toggle_task_at(&mut self, index: usize) {

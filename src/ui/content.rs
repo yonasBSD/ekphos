@@ -232,8 +232,8 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
                     .min(max_item_height)
             }
             ContentItem::CodeFence(_) => 1u16,
-            ContentItem::TaskItem { text, .. } => {
-                let base_height = calc_wrapped_height(text, 6);
+            ContentItem::TaskItem { text, indent, .. } => {
+                let base_height = calc_wrapped_height(text, 6 + *indent);
                 let inline_images = extract_inline_images(text);
                 if inline_images.is_empty() {
                     base_height
@@ -463,15 +463,15 @@ pub fn render_content(f: &mut Frame, app: &mut App, area: Rect) {
             ContentItem::CodeFence(lang) => {
                 render_code_fence(f, &app.theme, &lang, chunks[chunk_idx], is_cursor_line);
             }
-            ContentItem::TaskItem { ref text, checked, .. } => {
+            ContentItem::TaskItem { ref text, checked, indent, .. } => {
                 let selected_link = if is_cursor_line { app.selected_link_index } else { 0 };
                 let has_links = !app.item_wiki_links_at(item_idx).is_empty() || !app.item_links_at(item_idx).is_empty();
                 let wiki_validator = |target: &str| app.wiki_link_exists(target);
-                render_task_item(f, &app.theme, text, checked, chunks[chunk_idx], is_cursor_line, selected_link, has_links, Some(wiki_validator));
+                render_task_item(f, &app.theme, text, checked, indent, chunks[chunk_idx], is_cursor_line, selected_link, has_links, Some(wiki_validator));
                 if !skip_images {
                     let inline_images = extract_inline_images(text);
                     if !inline_images.is_empty() {
-                        let text_height = calc_wrapped_height(text, 6);
+                        let text_height = calc_wrapped_height(text, 6 + indent);
                         render_inline_thumbnails(f, app, &inline_images, chunks[chunk_idx], text_height);
                     }
                 }
@@ -1136,17 +1136,18 @@ fn apply_content_search_highlights(
                             .sum();
                         4 + display_col
                     }
-                    Some(ContentItem::TaskItem { text, .. }) => {
-                        if m.start_col < 6 {
+                    Some(ContentItem::TaskItem { text, indent, .. }) => {
+                        let prefix = 6 + *indent;
+                        if m.start_col < prefix {
                             continue;
                         }
-                        let content_start_col = m.start_col - 6;
+                        let content_start_col = m.start_col - prefix;
                         let formatting_shrinkage = calc_formatting_shrinkage(text, content_start_col);
                         let display_col: usize = text.chars()
                             .take(content_start_col.saturating_sub(formatting_shrinkage))
                             .map(|c| c.width().unwrap_or(1))
                             .sum();
-                        6 + display_col
+                        prefix + display_col
                     }
                     _ => {
                         // Calculate display width of raw line before the match
@@ -2130,6 +2131,7 @@ fn render_task_item<F>(
     theme: &Theme,
     text: &str,
     checked: bool,
+    indent: usize,
     area: Rect,
     is_cursor: bool,
     selected_link: usize,
@@ -2187,11 +2189,16 @@ fn render_task_item<F>(
 
     let mut spans = vec![
         Span::styled(cursor_indicator, Style::default().fg(theme.warning)),
+    ];
+    if indent > 0 {
+        spans.push(Span::styled(" ".repeat(indent), Style::default()));
+    }
+    spans.extend([
         Span::styled("[", bracket_style),
         Span::styled(if checked { "x" } else { " " }, checkbox_style),
         Span::styled("]", bracket_style),
         Span::styled(" ", Style::default()),
-    ];
+    ]);
     spans.extend(text_spans);
 
     let wrapped_lines = wrap_line_for_cursor(spans, available_width, theme);
