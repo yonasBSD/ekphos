@@ -1048,7 +1048,13 @@ fn apply_content_search_highlights(
 ) {
     let theme = &app.theme;
     let current_match_idx = app.buffer_search.current_match_index;
-    let lines = app.editor.lines();
+    let lines: Vec<&str> = if app.mode == Mode::Edit {
+        app.editor.lines()
+    } else if let Some(note) = app.notes.get(app.selected_note) {
+        note.content.lines().collect()
+    } else {
+        return;
+    };
 
     for (chunk_idx, &item_idx) in visible_indices.iter().enumerate() {
         if chunk_idx >= chunks.len() {
