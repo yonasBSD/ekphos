@@ -1,11 +1,13 @@
 //! Clipboard utilities with HTML-to-Markdown conversion support
 
+#[cfg(not(target_os = "android"))]
 use clipboard_rs::{Clipboard as ClipboardTrait, ClipboardContext, ContentFormat};
 use htmd::{Element, HtmlToMarkdown, element_handler::Handlers, options::{BulletListMarker, Options}};
 
 pub type ClipboardResult<T> = Result<T, ClipboardError>;
 
 #[derive(Debug)]
+#[allow(dead_code)] // ContextCreation/ReadError are unused on platforms without a system clipboard
 pub enum ClipboardError {
     ContextCreation(String),
     ReadError(String),
@@ -28,13 +30,46 @@ pub enum ClipboardContent {
     Empty,
 }
 
+/// Write plain text to the system clipboard.
+///
+/// No-op on platforms without a system clipboard backend (e.g. Android/Termux),
+/// where the editor relies on its internal clipboard instead.
+#[cfg(not(target_os = "android"))]
+pub fn set_system_text(text: &str) {
+    if let Ok(ctx) = ClipboardContext::new() {
+        let _ = ctx.set_text(text.to_string());
+    }
+}
+
+#[cfg(target_os = "android")]
+pub fn set_system_text(_text: &str) {}
+
+/// Read plain text from the system clipboard, or `None` if unavailable.
+#[cfg(not(target_os = "android"))]
+pub fn get_system_text() -> Option<String> {
+    ClipboardContext::new().ok()?.get_text().ok()
+}
+
+#[cfg(target_os = "android")]
+pub fn get_system_text() -> Option<String> {
+    None
+}
+
 #[allow(dead_code)]
+#[cfg(not(target_os = "android"))]
 pub fn has_html() -> bool {
     ClipboardContext::new()
         .map(|ctx| ctx.has(ContentFormat::Html))
         .unwrap_or(false)
 }
 
+#[allow(dead_code)]
+#[cfg(target_os = "android")]
+pub fn has_html() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "android"))]
 pub fn get_html() -> ClipboardResult<Option<String>> {
     let ctx = ClipboardContext::new()
         .map_err(|e| ClipboardError::ContextCreation(e.to_string()))?;
@@ -48,6 +83,12 @@ pub fn get_html() -> ClipboardResult<Option<String>> {
         .map_err(|e| ClipboardError::ReadError(e.to_string()))
 }
 
+#[cfg(target_os = "android")]
+pub fn get_html() -> ClipboardResult<Option<String>> {
+    Ok(None)
+}
+
+#[cfg(not(target_os = "android"))]
 pub fn get_text() -> ClipboardResult<Option<String>> {
     let ctx = ClipboardContext::new()
         .map_err(|e| ClipboardError::ContextCreation(e.to_string()))?;
@@ -55,6 +96,11 @@ pub fn get_text() -> ClipboardResult<Option<String>> {
     ctx.get_text()
         .map(Some)
         .map_err(|e| ClipboardError::ReadError(e.to_string()))
+}
+
+#[cfg(target_os = "android")]
+pub fn get_text() -> ClipboardResult<Option<String>> {
+    Ok(None)
 }
 
 fn create_converter() -> HtmlToMarkdown {
