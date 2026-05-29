@@ -721,6 +721,10 @@ fn handle_key_event(app: &mut App, key: crossterm::event::KeyEvent) -> io::Resul
             handle_graph_view_dialog(app, key);
             return Ok(false);
         }
+        DialogState::ThemeSelector => {
+            handle_theme_selector_dialog(app, key);
+            return Ok(false);
+        }
         DialogState::None => {}
     }
 
@@ -1832,6 +1836,30 @@ fn handle_search_picker_input(app: &mut App, key: crossterm::event::KeyEvent) {
     }
 }
 
+fn handle_theme_selector_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
+    match key.code {
+        KeyCode::Esc => {
+            app.cancel_theme_selection();
+        }
+        KeyCode::Enter => {
+            app.confirm_theme_selection();
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            app.theme_selector_select_prev();
+        }
+        KeyCode::Down | KeyCode::Char('j') => {
+            app.theme_selector_select_next();
+        }
+        KeyCode::Char('n') if key.modifiers == KeyModifiers::CONTROL => {
+            app.theme_selector_select_next();
+        }
+        KeyCode::Char('p') if key.modifiers == KeyModifiers::CONTROL => {
+            app.theme_selector_select_prev();
+        }
+        _ => {}
+    }
+}
+
 fn handle_search_input(app: &mut App, key: crossterm::event::KeyEvent) {
     let is_nav_down = key.code == KeyCode::Down
         || (key.code == KeyCode::Char('j') && key.modifiers == KeyModifiers::CONTROL)
@@ -2072,6 +2100,9 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
         }
         KeyCode::Char('k') if key.modifiers == KeyModifiers::CONTROL => {
             app.open_search_picker();
+        }
+        KeyCode::Char('t') if key.modifiers == KeyModifiers::CONTROL => {
+            app.open_theme_selector();
         }
         KeyCode::Down | KeyCode::Char('j') => {
             match app.focus {

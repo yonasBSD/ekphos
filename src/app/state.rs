@@ -17,7 +17,7 @@ use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
 use crate::editor::{Editor, Position};
 use crate::highlight::Highlighter;
 use crate::highlight_worker::{HighlightColors, HighlightResult, HighlightWorker};
-use crate::config::{Config, Theme};
+use crate::config::{Config, Theme, ThemeEntry, ThemeFile};
 use crate::search::{self, SearchIndex};
 use crate::vim::VimState;
 
@@ -161,6 +161,19 @@ pub enum DialogState {
     UnsavedChanges,
     CreateWikiNote,
     GraphView,
+    ThemeSelector,
+}
+
+/// State for the theme selector modal (opened with Ctrl+T). Live-previews the
+/// highlighted theme as the user navigates; the original theme is restored on
+/// cancel and the selected one is persisted to config on confirm.
+#[derive(Debug, Clone, Default)]
+pub struct ThemePicker {
+    pub themes: Vec<ThemeEntry>,
+    pub selected: usize,
+    pub scroll_offset: usize,
+    /// Theme name active when the picker was opened, restored on Esc.
+    pub original_theme_name: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -663,6 +676,8 @@ pub struct App {
     pub navigation_index: usize,
     // Frontmatter visibility
     pub frontmatter_hidden: bool,
+    // Theme selector modal (Ctrl+T)
+    pub theme_picker: ThemePicker,
     // Global search picker (file/content search)
     pub search_picker: SearchPickerState,
     pub search_picker_area: ratatui::layout::Rect,
@@ -857,6 +872,7 @@ impl App {
             navigation_history: Vec::new(),
             navigation_index: 0,
             frontmatter_hidden,
+            theme_picker: ThemePicker::default(),
             search_picker: SearchPickerState::Closed,
             search_picker_area: ratatui::layout::Rect::default(),
             search_picker_results_area: ratatui::layout::Rect::default(),
@@ -1042,6 +1058,7 @@ impl App {
             navigation_history: Vec::new(),
             navigation_index: 0,
             frontmatter_hidden,
+            theme_picker: ThemePicker::default(),
             search_picker: SearchPickerState::Closed,
             search_picker_area: ratatui::layout::Rect::default(),
             search_picker_results_area: ratatui::layout::Rect::default(),
@@ -1168,6 +1185,102 @@ impl App {
         self.load_notes_from_dir();
         self.update_content_items();
         self.update_outline();
+    }
+
+    /// Swap the active runtime theme without touching config or reloading notes
+    /// from disk. Content/editor views read `self.theme` live each frame, so the
+    /// whole UI re-skins on the next render; the syntect code-block highlighter
+    /// keys off `syntax_theme` (unchanged here) so it is intentionally left
+    /// alone. Used for both live preview and final apply in the theme selector.
+    fn apply_theme_named(&mut self, name: &str) {
+        self.theme = Theme::from_name(name);
+        self.editor.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(self.theme.primary))
+                .title(" NORMAL | Ctrl+S: Save, Esc: Exit "),
+        );
+        self.editor.set_selection_style(
+            Style::default()
+                .fg(self.theme.foreground)
+                .bg(self.theme.selection),
+        );
+        self.needs_full_clear = true;
+    }
+
+    /// Open the theme selector modal (Ctrl+T). Snapshots the current theme so it
+    /// can be restored on cancel, and pre-selects the active theme.
+    pub fn open_theme_selector(&mut self) {
+        if self.mode != Mode::Normal {
+            return;
+        }
+        let themes = ThemeFile::list_available();
+        if themes.is_empty() {
+            return;
+        }
+        let selected = themes
+            .iter()
+            .position(|t| t.name == self.config.theme)
+            .unwrap_or(0);
+        self.theme_picker = ThemePicker {
+            themes,
+            selected,
+            scroll_offset: 0,
+            original_theme_name: self.config.theme.clone(),
+        };
+        self.dialog = DialogState::ThemeSelector;
+    }
+
+    fn preview_selected_theme(&mut self) {
+        if let Some(entry) = self.theme_picker.themes.get(self.theme_picker.selected) {
+            let name = entry.name.clone();
+            self.apply_theme_named(&name);
+        }
+    }
+
+    pub fn theme_selector_select_next(&mut self) {
+        let len = self.theme_picker.themes.len();
+        if len == 0 {
+            return;
+        }
+        self.theme_picker.selected = (self.theme_picker.selected + 1) % len;
+        self.preview_selected_theme();
+    }
+
+    pub fn theme_selector_select_prev(&mut self) {
+        let len = self.theme_picker.themes.len();
+        if len == 0 {
+            return;
+        }
+        self.theme_picker.selected = if self.theme_picker.selected == 0 {
+            len - 1
+        } else {
+            self.theme_picker.selected - 1
+        };
+        self.preview_selected_theme();
+    }
+
+    /// Persist the highlighted theme to config and close the modal.
+    pub fn confirm_theme_selection(&mut self) {
+        if let Some(entry) = self.theme_picker.themes.get(self.theme_picker.selected) {
+            let name = entry.name.clone();
+            self.config.theme = name.clone();
+            let _ = self.config.save();
+            self.apply_theme_named(&name);
+            self.status_message = Some(format!("Theme: {}", name));
+        }
+        self.dialog = DialogState::None;
+        self.theme_picker = ThemePicker::default();
+    }
+
+    /// Restore the theme that was active when the modal opened and close it.
+    pub fn cancel_theme_selection(&mut self) {
+        let original = self.theme_picker.original_theme_name.clone();
+        if !original.is_empty() {
+            self.apply_theme_named(&original);
+        }
+        self.dialog = DialogState::None;
+        self.theme_picker = ThemePicker::default();
     }
 
     fn directory_has_notes(path: &PathBuf) -> bool {

@@ -87,14 +87,47 @@ Press `Ctrl+g` to open the interactive graph view and visualize connections betw
 
 ## Markdown Features
 
+Ekphos renders a rich subset of Markdown right inside your terminal.
+
+### Headings
+
+Use `#` through `######` for six levels of headings. H1–H3 are foldable — press `Tab` or `Space` on a heading to collapse the section beneath it — and every heading shows up in the Outline panel for quick navigation.
+
 ### Text Formatting
 
-- **Bold text** with double asterisks
-- *Italic text* with single asterisks
+- **Bold text** with `**double asterisks**` (or `__underscores__`)
+- *Italic text* with `*single asterisks*` (or `_underscores_`)
 - `Inline code` with backticks
-- ~~Strikethrough~~ in task items
+- ~~Strikethrough~~ with `~~double tildes~~`
+
+### Lists
+
+Unordered, ordered, and nested lists are all supported:
+
+- First bullet (`-` or `*`)
+- Second bullet
+    - Nested item with indentation
+    - Another nested item
+- Third bullet
+
+1. Ordered lists use numbers
+2. They render in sequence
+3. Great for step-by-step instructions
+
+### Tables
+
+Pipe tables support per-column alignment (set with `:` in the separator row) and `<br>` for line breaks inside a cell:
+
+| Alignment | Marker  | Example                   |
+| :-------- | :-----: | ------------------------: |
+| Left      | `:---`  | text hugs the left        |
+| Center    | `:---:` | centered                  |
+| Right     | `---:`  | numbers line up           |
+| Wrapping  | `<br>`  | first line<br>second line |
 
 ### Code Blocks
+
+Fenced code blocks get syntax highlighting based on the language tag:
 
 ```rust
 fn main() {
@@ -106,6 +139,18 @@ fn main() {
 
 > Blockquotes are rendered with a colored border.
 > Great for highlighting important information.
+
+### Horizontal Rules
+
+Use `---`, `***`, or `___` on their own line to draw a divider:
+
+---
+
+### Links
+
+- [Inline links](https://docs.ekphos.xyz) with `[text](url)`
+- Bare URLs like https://ekphos.xyz are auto-detected
+- Press `Enter`, `o`, or click to open a link in your browser
 
 ### Images
 

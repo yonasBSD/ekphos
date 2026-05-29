@@ -535,6 +535,19 @@ impl Default for EditorColors {
     }
 }
 
+/// Names of the official themes bundled into the binary via `include_str!`.
+/// Keep this in sync with the match arms in `ThemeFile::get_bundled_theme`.
+pub const BUNDLED_THEMES: &[&str] = &["ekphos-dawn", "dracula", "kanagawa"];
+
+/// A theme available for selection, with its origin.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ThemeEntry {
+    pub name: String,
+    /// True for official themes shipped in the binary, false for user themes
+    /// found in `~/.config/ekphos/themes/`.
+    pub bundled: bool,
+}
+
 impl ThemeFile {
     pub fn load_from_file(path: &PathBuf) -> Option<Self> {
         let content = fs::read_to_string(path).ok()?;
@@ -578,6 +591,45 @@ impl ThemeFile {
             }
         }
         None
+    }
+
+    /// List every selectable theme: the official bundled themes first (in their
+    /// canonical order), then any user themes from `~/.config/ekphos/themes/`
+    /// sorted alphabetically. Names are de-duplicated so a user copy of a
+    /// bundled theme (e.g. the `ekphos-dawn.toml` written on first launch) is
+    /// only listed once, as an official theme.
+    pub fn list_available() -> Vec<ThemeEntry> {
+        let mut entries: Vec<ThemeEntry> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for name in BUNDLED_THEMES {
+            if seen.insert((*name).to_string()) {
+                entries.push(ThemeEntry { name: (*name).to_string(), bundled: true });
+            }
+        }
+
+        if let Ok(read_dir) = fs::read_dir(Config::themes_dir()) {
+            let mut user_names: Vec<String> = Vec::new();
+            for entry in read_dir.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|e| e.to_str()) != Some("toml") {
+                    continue;
+                }
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    if !seen.contains(stem) {
+                        user_names.push(stem.to_string());
+                    }
+                }
+            }
+            user_names.sort();
+            for name in user_names {
+                if seen.insert(name.clone()) {
+                    entries.push(ThemeEntry { name, bundled: false });
+                }
+            }
+        }
+
+        entries
     }
 }
 

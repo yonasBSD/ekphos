@@ -842,6 +842,10 @@ pub fn render_help_dialog(f: &mut Frame, app: &mut App) {
             Span::styled("Fuzzy search notes", desc_style),
         ]),
         Line::from(vec![
+            Span::styled(" Ctrl+t    ", key_style),
+            Span::styled("Select theme", desc_style),
+        ]),
+        Line::from(vec![
             Span::styled(" Ctrl+z    ", key_style),
             Span::styled("Toggle zen mode", desc_style),
         ]),

@@ -8,6 +8,7 @@ mod outline;
 mod search_dialog;
 mod sidebar;
 mod status_bar;
+mod theme_picker;
 mod wiki_autocomplete;
 
 use ratatui::{
@@ -105,6 +106,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
         DialogState::UnsavedChanges => render_unsaved_changes_dialog(f, app),
         DialogState::CreateWikiNote => render_create_wiki_note_dialog(f, app),
         DialogState::GraphView => graph_view::render_graph_view(f, app),
+        DialogState::ThemeSelector => theme_picker::render_theme_picker(f, app),
         DialogState::None => {
             // Render welcome dialog on top if active
             if app.show_welcome {
