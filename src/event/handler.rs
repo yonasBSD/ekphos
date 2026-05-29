@@ -131,7 +131,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Box<dyn io::Write>>>, ap
 }
 
 // Default event handling can't keep up with fast frame update
-// this one is okayish solution to batch event 
+// this one is okayish solution to batch event
 fn process_events(
     _terminal: &mut Terminal<CrosstermBackend<Box<dyn io::Write>>>,
     app: &mut App,
@@ -512,6 +512,7 @@ fn handle_edit_mode_mouse(app: &mut App, mouse: crossterm::event::MouseEvent) {
                     app.vim_mode = VimMode::Visual;
                     update_cursor_style(app);
                     app.editor.start_selection();
+                    app.editor.set_inclusive_selection(true);
                     app.update_editor_block();
                 }
 
@@ -695,6 +696,7 @@ fn execute_context_menu_action(app: &mut App, action: ContextMenuItem) {
             app.editor.move_cursor(CursorMove::Top);
             app.editor.start_selection();
             app.editor.move_cursor(CursorMove::Bottom);
+            app.editor.set_inclusive_selection(true);
             app.vim_mode = VimMode::Visual;
             update_cursor_style(app);
         }
@@ -1251,7 +1253,7 @@ fn handle_wiki_autocomplete(app: &mut App, key: crossterm::event::KeyEvent) -> b
             app.wiki_autocomplete = WikiAutocompleteState::Open {
                 trigger_pos: (0, 0),
                 query: String::new(),
-                suggestions: Vec::new(), 
+                suggestions: Vec::new(),
                 selected_index: 0,
                 mode: WikiAutocompleteMode::Alias,
                 target_note: Some(full_target),
@@ -1273,7 +1275,7 @@ fn handle_wiki_autocomplete(app: &mut App, key: crossterm::event::KeyEvent) -> b
                         Vec::new()
                     }
                 }
-                WikiAutocompleteMode::Alias => Vec::new(), 
+                WikiAutocompleteMode::Alias => Vec::new(),
             };
 
             app.wiki_autocomplete = WikiAutocompleteState::Open {
@@ -1331,11 +1333,11 @@ fn handle_rename_folder_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
             app.dialog = DialogState::None;
         }
         KeyCode::Char(c) => {
-            app.dialog_error = None; 
+            app.dialog_error = None;
             app.input_buffer.push(c);
         }
         KeyCode::Backspace => {
-            app.dialog_error = None; 
+            app.dialog_error = None;
             app.input_buffer.pop();
         }
         _ => {}
@@ -1506,9 +1508,9 @@ fn repel_nodes_from(app: &mut App, node_idx: usize) {
     let dragged_x = app.graph_view.nodes[node_idx].x;
     let dragged_y = app.graph_view.nodes[node_idx].y;
 
-    let repel_radius: f32 = 30.0;  
-    let repel_strength: f32 = 10.0; 
-    let snap_back_strength: f32 = 0.12; 
+    let repel_radius: f32 = 30.0;
+    let repel_strength: f32 = 10.0;
+    let snap_back_strength: f32 = 0.12;
     for i in 0..app.graph_view.nodes.len() {
         if i == node_idx {
             continue;
@@ -1628,10 +1630,10 @@ fn handle_graph_view_dialog(app: &mut App, key: crossterm::event::KeyEvent) {
             app.graph_view.viewport_x += 10.0;
         }
         KeyCode::Char('+') | KeyCode::Char('=') => {
-            zoom_graph(app, 1.25); 
+            zoom_graph(app, 1.25);
         }
         KeyCode::Char('-') | KeyCode::Char('_') => {
-            zoom_graph(app, 1.0 / 1.25); 
+            zoom_graph(app, 1.0 / 1.25);
         }
         KeyCode::Char('f') => {
             fit_graph_to_screen(app);
@@ -2758,6 +2760,7 @@ fn handle_vim_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) {
             update_cursor_style(app);
             app.editor.cancel_selection();
             app.editor.start_selection();
+            app.editor.set_inclusive_selection(true);
         }
         KeyCode::Char('V') => {
             app.vim.reset_pending();
@@ -3480,7 +3483,7 @@ fn apply_block_insert(app: &mut App, state: BlockInsertState) {
             let (start_row, end_row) = state.rows;
             for row in start_row..=end_row {
                 if row == state.active_row {
-                    continue; 
+                    continue;
                 }
 
                 let line_len = app.editor.lines().get(row).map(|l| l.chars().count()).unwrap_or(0);
