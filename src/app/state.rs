@@ -27,6 +27,38 @@ pub enum BlockInsertMode {
     Append,
 }
 
+/// Severity of a transient [`Toast`] notification, used to pick its accent color.
+///
+/// `Info`/`Success` round out the notification API for future callers; only
+/// `Error` is raised today (see [`App::show_error_toast`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[allow(dead_code)]
+pub enum ToastKind {
+    Error,
+    Info,
+    Success,
+}
+
+/// A short-lived, non-blocking notification shown as a floating overlay.
+///
+/// Toasts are how recoverable errors (e.g. a clipboard read failing) reach the
+/// user without writing to stdout/stderr, which would corrupt the TUI.
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub message: String,
+    pub kind: ToastKind,
+    pub shown_at: std::time::Instant,
+}
+
+impl Toast {
+    /// How long a toast stays on screen before auto-dismissing.
+    const TTL: std::time::Duration = std::time::Duration::from_secs(4);
+
+    pub fn is_expired(&self) -> bool {
+        self.shown_at.elapsed() >= Self::TTL
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct BlockInsertState {
     pub mode: BlockInsertMode,
@@ -665,6 +697,7 @@ pub struct App {
     pub pending_g: bool,
     pub pending_z: bool,  // For z-prefixed commands like zM, zR
     pub status_message: Option<String>,  // Status message shown next to path
+    pub toast: Option<Toast>,  // Transient error/info notification overlay
     pub buffer_search: BufferSearchState,
     pub help_scroll: usize,
     // Graph view state
@@ -865,6 +898,7 @@ impl App {
             pending_g: false,
             pending_z: false,
             status_message: None,
+            toast: None,
             buffer_search: BufferSearchState::new(),
             help_scroll: 0,
             graph_view: GraphViewState::default(),
@@ -1051,6 +1085,7 @@ impl App {
             pending_g: false,
             pending_z: false,
             status_message: None,
+            toast: None,
             buffer_search: BufferSearchState::new(),
             help_scroll: 0,
             graph_view: GraphViewState::default(),
@@ -4729,6 +4764,32 @@ impl App {
 
     pub fn current_note(&self) -> Option<&Note> {
         self.notes.get(self.selected_note)
+    }
+
+    /// Show a transient toast notification, replacing any current one.
+    pub fn show_toast(&mut self, message: impl Into<String>, kind: ToastKind) {
+        self.toast = Some(Toast {
+            message: message.into(),
+            kind,
+            shown_at: std::time::Instant::now(),
+        });
+    }
+
+    /// Surface a recoverable error to the user as a toast. Use this instead of
+    /// printing — stdout/stderr writes corrupt the alternate-screen TUI.
+    pub fn show_error_toast(&mut self, message: impl Into<String>) {
+        self.show_toast(message, ToastKind::Error);
+    }
+
+    /// Drop the active toast once it has outlived its TTL. Returns `true` when
+    /// the screen needs a redraw because a toast was just dismissed.
+    pub fn tick_toast(&mut self) -> bool {
+        if self.toast.as_ref().map_or(false, |t| t.is_expired()) {
+            self.toast = None;
+            true
+        } else {
+            false
+        }
     }
 
     pub fn save_last_opened_note_to_cache(&self) {

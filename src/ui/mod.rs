@@ -9,6 +9,7 @@ mod search_dialog;
 mod sidebar;
 mod status_bar;
 mod theme_picker;
+mod toast;
 mod wiki_autocomplete;
 
 use ratatui::{
@@ -131,4 +132,7 @@ pub fn render(f: &mut Frame, app: &mut App) {
     if !matches!(app.search_picker, SearchPickerState::Closed) {
         file_picker::render_search_picker(f, app);
     }
+
+    // Toast notifications float above everything else.
+    toast::render_toast(f, app);
 }

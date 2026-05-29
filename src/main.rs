@@ -243,6 +243,50 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
+/// Hand back the writer the TUI should render into.
+///
+/// On Unix we point the process's stdout (fd 1) at `/dev/null` and draw through
+/// a *duplicate* of the original terminal. Some clipboard backends print
+/// diagnostics straight to stdout from a background thread — notably
+/// `clipboard-rs`'s X11 server, which prints "Somebody else owns the clipboard
+/// now" whenever another app takes the selection. On the alternate screen those
+/// stray writes corrupt the render. crossterm performs its own terminal I/O via
+/// `/dev/tty`, so silencing fd 1 leaves raw mode, sizing and input untouched.
+///
+/// Falls back to plain stdout (no redirection) if any of the dup/redirect steps
+/// fail, so behaviour is never worse than before.
+#[cfg(unix)]
+fn terminal_writer() -> Box<dyn io::Write> {
+    use std::os::unix::io::{AsRawFd, FromRawFd};
+
+    // Duplicate the real stdout so the TUI can keep drawing to the terminal.
+    let tui_fd = unsafe { libc::dup(libc::STDOUT_FILENO) };
+    if tui_fd < 0 {
+        return Box::new(io::stdout());
+    }
+
+    // Redirect fd 1 -> /dev/null so stray library output can't reach the screen.
+    let devnull = match fs::OpenOptions::new().write(true).open("/dev/null") {
+        Ok(f) => f,
+        Err(_) => {
+            unsafe { libc::close(tui_fd) };
+            return Box::new(io::stdout());
+        }
+    };
+    if unsafe { libc::dup2(devnull.as_raw_fd(), libc::STDOUT_FILENO) } < 0 {
+        unsafe { libc::close(tui_fd) };
+        return Box::new(io::stdout());
+    }
+
+    // SAFETY: `tui_fd` is an exclusively-owned descriptor returned by `dup`.
+    Box::new(unsafe { fs::File::from_raw_fd(tui_fd) })
+}
+
+#[cfg(not(unix))]
+fn terminal_writer() -> Box<dyn io::Write> {
+    Box::new(io::stdout())
+}
+
 fn resolve_path(path_str: &str) -> Option<PathBuf> {
     let expanded = shellexpand::tilde(path_str).to_string();
     let path = PathBuf::from(&expanded);
@@ -314,11 +358,12 @@ fn main() -> io::Result<()> {
         return Ok(());
     }
 
-    // Setup terminal
+    // Setup terminal. On Unix this also redirects stdout to /dev/null and draws
+    // through a dup of the terminal, so stray library output can't corrupt the UI.
     enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste, EnableFocusChange, SetCursorStyle::SteadyBlock)?;
-    let backend = CrosstermBackend::new(stdout);
+    let mut writer = terminal_writer();
+    execute!(writer, EnterAlternateScreen, EnableMouseCapture, EnableBracketedPaste, EnableFocusChange, SetCursorStyle::SteadyBlock)?;
+    let backend = CrosstermBackend::new(writer);
     let mut terminal = Terminal::new(backend)?;
 
     // Create app state

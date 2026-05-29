@@ -683,6 +683,7 @@ dependencies = [
  "dirs 5.0.1",
  "htmd",
  "image",
+ "libc",
  "ratatui",
  "ratatui-image",
  "serde",

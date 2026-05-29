@@ -11,13 +11,41 @@ use crate::ui;
 use crate::vim::{FindState, PendingFind, PendingMacro, PendingMark, TextObject, TextObjectScope, VimMode as VimModeNew};
 use crate::vim::command::{parse_command, Command};
 
+/// Emit a terminal control command to the controlling terminal.
+///
+/// We avoid `std::io::stdout()` here: on Unix the process's stdout is redirected
+/// to `/dev/null` at startup (see `terminal_writer` in `main.rs`) so stray
+/// library output can't corrupt the alternate screen. Cursor-style escapes are
+/// therefore sent straight to `/dev/tty`, the same terminal crossterm uses for
+/// its own I/O. The `/dev/tty` handle is opened once and reused.
+#[cfg(unix)]
+fn write_term_control(cmd: impl crossterm::Command) {
+    use std::sync::{Mutex, OnceLock};
+    static TTY: OnceLock<Option<Mutex<std::fs::File>>> = OnceLock::new();
+    let tty = TTY.get_or_init(|| {
+        std::fs::OpenOptions::new().write(true).open("/dev/tty").ok().map(Mutex::new)
+    });
+    if let Some(tty) = tty {
+        if let Ok(mut tty) = tty.lock() {
+            let _ = crossterm::execute!(*tty, cmd);
+            return;
+        }
+    }
+    let _ = crossterm::execute!(std::io::stdout(), cmd);
+}
+
+#[cfg(not(unix))]
+fn write_term_control(cmd: impl crossterm::Command) {
+    let _ = crossterm::execute!(std::io::stdout(), cmd);
+}
+
 fn update_cursor_style(app: &mut App) {
     let terminal_style = match app.vim_mode {
         VimMode::Insert => SetCursorStyle::SteadyBar,
         VimMode::Replace => SetCursorStyle::SteadyUnderScore,
         _ => SetCursorStyle::SteadyBlock,
     };
-    let _ = crossterm::execute!(std::io::stdout(), terminal_style);
+    write_term_control(terminal_style);
     let editor_shape = match app.vim_mode {
         VimMode::Insert => CursorShape::Bar,
         VimMode::Replace => CursorShape::Underline,
@@ -26,7 +54,7 @@ fn update_cursor_style(app: &mut App) {
     app.editor.set_cursor_shape(editor_shape);
 }
 
-pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut App) -> io::Result<()> {
+pub fn run_app(terminal: &mut Terminal<CrosstermBackend<Box<dyn io::Write>>>, app: &mut App) -> io::Result<()> {
     let mut needs_render = true;
 
     loop {
@@ -54,6 +82,11 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut 
             needs_render = true;
         }
 
+        // Auto-dismiss an expired toast and redraw to clear it.
+        if app.tick_toast() {
+            needs_render = true;
+        }
+
         if needs_render {
             terminal.draw(|f| ui::render(f, app))?;
             needs_render = false;
@@ -64,7 +97,9 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut 
             || app.mouse_button_held
             || app.is_content_search_in_progress()
             || app.indexing_in_progress
-            || app.has_highlight_work();
+            || app.has_highlight_work()
+            // Keep ticking while a toast is visible so it can self-expire.
+            || app.toast.is_some();
 
         if has_background_work {
             // Use very short timeout for highlight work to be reactive
@@ -98,7 +133,7 @@ pub fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, app: &mut 
 // Default event handling can't keep up with fast frame update
 // this one is okayish solution to batch event 
 fn process_events(
-    _terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    _terminal: &mut Terminal<CrosstermBackend<Box<dyn io::Write>>>,
     app: &mut App,
     needs_render: &mut bool,
 ) -> io::Result<bool> {
@@ -398,7 +433,12 @@ fn handle_paste_event(app: &mut App, text: String) {
         Ok(ClipboardContent::Markdown(md)) => md,
         Ok(ClipboardContent::PlainText(txt)) => txt,
         Ok(ClipboardContent::Empty) => text.clone(),
-        Err(_) => text.clone(),
+        Err(e) => {
+            // The terminal already handed us the pasted text, so fall back to it
+            // and surface the clipboard failure as a toast (never to stdout).
+            app.show_error_toast(format!("Clipboard: {}", e));
+            text.clone()
+        }
     };
 
     // Force full clear for multiline paste to prevent ghosting

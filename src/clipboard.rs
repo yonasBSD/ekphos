@@ -2,6 +2,8 @@
 
 #[cfg(not(target_os = "android"))]
 use clipboard_rs::{Clipboard as ClipboardTrait, ClipboardContext, ContentFormat};
+#[cfg(not(target_os = "android"))]
+use std::sync::{Mutex, OnceLock};
 use htmd::{Element, HtmlToMarkdown, element_handler::Handlers, options::{BulletListMarker, Options}};
 
 pub type ClipboardResult<T> = Result<T, ClipboardError>;
@@ -30,15 +32,42 @@ pub enum ClipboardContent {
     Empty,
 }
 
+/// The one, lazily-created, process-wide clipboard context.
+///
+/// `clipboard-rs`'s X11 backend spawns a background thread per context that
+/// holds the CLIPBOARD selection so its contents survive. Creating a fresh
+/// context for every copy/paste therefore leaked a thread each time and, worse,
+/// each new context stole selection ownership from the previous one — which
+/// made the now-orphaned thread print "Somebody else owns the clipboard now"
+/// to stdout and corrupt the TUI. Reusing one long-lived context keeps a single
+/// owner, so re-copying never triggers a self-inflicted `SelectionClear`.
+///
+/// Returns `None` if a backend could not be created (e.g. no display server).
+/// Kept non-generic so there is exactly one `CTX` regardless of caller.
+#[cfg(not(target_os = "android"))]
+fn clipboard_context() -> Option<&'static Mutex<ClipboardContext>> {
+    static CTX: OnceLock<Option<Mutex<ClipboardContext>>> = OnceLock::new();
+    CTX.get_or_init(|| ClipboardContext::new().ok().map(Mutex::new))
+        .as_ref()
+}
+
+/// Run `f` against the shared clipboard context, or return `None` if no
+/// clipboard backend is available or the lock is poisoned.
+#[cfg(not(target_os = "android"))]
+fn with_clipboard<T>(f: impl FnOnce(&ClipboardContext) -> T) -> Option<T> {
+    let guard = clipboard_context()?.lock().ok()?;
+    Some(f(&guard))
+}
+
 /// Write plain text to the system clipboard.
 ///
 /// No-op on platforms without a system clipboard backend (e.g. Android/Termux),
-/// where the editor relies on its internal clipboard instead.
+/// where the editor relies on its internal clipboard instead. Failures are
+/// swallowed silently — never logged to stdout/stderr, which would corrupt the
+/// TUI.
 #[cfg(not(target_os = "android"))]
 pub fn set_system_text(text: &str) {
-    if let Ok(ctx) = ClipboardContext::new() {
-        let _ = ctx.set_text(text.to_string());
-    }
+    let _ = with_clipboard(|ctx| ctx.set_text(text.to_string()));
 }
 
 #[cfg(target_os = "android")]
@@ -47,7 +76,7 @@ pub fn set_system_text(_text: &str) {}
 /// Read plain text from the system clipboard, or `None` if unavailable.
 #[cfg(not(target_os = "android"))]
 pub fn get_system_text() -> Option<String> {
-    ClipboardContext::new().ok()?.get_text().ok()
+    with_clipboard(|ctx| ctx.get_text().ok()).flatten()
 }
 
 #[cfg(target_os = "android")]
@@ -58,9 +87,7 @@ pub fn get_system_text() -> Option<String> {
 #[allow(dead_code)]
 #[cfg(not(target_os = "android"))]
 pub fn has_html() -> bool {
-    ClipboardContext::new()
-        .map(|ctx| ctx.has(ContentFormat::Html))
-        .unwrap_or(false)
+    with_clipboard(|ctx| ctx.has(ContentFormat::Html)).unwrap_or(false)
 }
 
 #[allow(dead_code)]
@@ -71,16 +98,15 @@ pub fn has_html() -> bool {
 
 #[cfg(not(target_os = "android"))]
 pub fn get_html() -> ClipboardResult<Option<String>> {
-    let ctx = ClipboardContext::new()
-        .map_err(|e| ClipboardError::ContextCreation(e.to_string()))?;
-
-    if !ctx.has(ContentFormat::Html) {
-        return Ok(None);
-    }
-
-    ctx.get_html()
-        .map(Some)
-        .map_err(|e| ClipboardError::ReadError(e.to_string()))
+    with_clipboard(|ctx| {
+        if !ctx.has(ContentFormat::Html) {
+            return Ok(None);
+        }
+        ctx.get_html()
+            .map(Some)
+            .map_err(|e| ClipboardError::ReadError(e.to_string()))
+    })
+    .unwrap_or_else(|| Err(ClipboardError::ContextCreation("clipboard unavailable".to_string())))
 }
 
 #[cfg(target_os = "android")]
@@ -90,12 +116,12 @@ pub fn get_html() -> ClipboardResult<Option<String>> {
 
 #[cfg(not(target_os = "android"))]
 pub fn get_text() -> ClipboardResult<Option<String>> {
-    let ctx = ClipboardContext::new()
-        .map_err(|e| ClipboardError::ContextCreation(e.to_string()))?;
-
-    ctx.get_text()
-        .map(Some)
-        .map_err(|e| ClipboardError::ReadError(e.to_string()))
+    with_clipboard(|ctx| {
+        ctx.get_text()
+            .map(Some)
+            .map_err(|e| ClipboardError::ReadError(e.to_string()))
+    })
+    .unwrap_or_else(|| Err(ClipboardError::ContextCreation("clipboard unavailable".to_string())))
 }
 
 #[cfg(target_os = "android")]
