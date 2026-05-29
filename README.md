@@ -4,7 +4,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.70%2B-orange)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/crates/l/ekphos)](https://github.com/hanebox/ekphos/blob/main/LICENSE)
 
-An open source, lightweight, fast, terminal-based markdown research tool built with Rust.
+A lightweight, fast, terminal-based markdown research tool built with Rust.
 
 ![Ekphos Preview](examples/ekphos-screenshot.png)
 
