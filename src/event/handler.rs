@@ -2104,6 +2104,9 @@ fn handle_normal_mode(app: &mut App, key: crossterm::event::KeyEvent) -> bool {
         KeyCode::Char('t') if key.modifiers == KeyModifiers::CONTROL => {
             app.open_theme_selector();
         }
+        KeyCode::Char('t') if key.modifiers.is_empty() && !app.zen_mode => {
+            app.open_or_create_journal();
+        }
         KeyCode::Down | KeyCode::Char('j') => {
             match app.focus {
                 Focus::Sidebar => app.next_sidebar_item(),

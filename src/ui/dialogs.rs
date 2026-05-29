@@ -846,6 +846,10 @@ pub fn render_help_dialog(f: &mut Frame, app: &mut App) {
             Span::styled("Select theme", desc_style),
         ]),
         Line::from(vec![
+            Span::styled(" t         ", key_style),
+            Span::styled("Open today's journal", desc_style),
+        ]),
+        Line::from(vec![
             Span::styled(" Ctrl+z    ", key_style),
             Span::styled("Toggle zen mode", desc_style),
         ]),

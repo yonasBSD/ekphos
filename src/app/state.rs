@@ -1283,6 +1283,37 @@ impl App {
         self.theme_picker = ThemePicker::default();
     }
 
+    /// Journal mode (`t`): open today's daily note, creating it from a small
+    /// dated template if it doesn't exist yet. The file is `journal.<date>.md`
+    /// in the notes directory, using the user's *local* date. Either way the
+    /// note ends up selected and focused.
+    pub fn open_or_create_journal(&mut self) {
+        if self.mode != Mode::Normal {
+            return;
+        }
+        let notes_dir = self.config.notes_path();
+        if !notes_dir.exists() {
+            let _ = fs::create_dir_all(&notes_dir);
+        }
+        let filename = crate::journal::today_filename();
+        let file_path = notes_dir.join(&filename);
+
+        if file_path.exists() {
+            self.status_message = Some(format!("Opened {}", filename));
+        } else {
+            let content = crate::journal::new_entry_content();
+            if let Err(e) = fs::write(&file_path, &content) {
+                self.status_message = Some(format!("Journal failed: {}", e));
+                return;
+            }
+            self.status_message = Some(format!("Created {}", filename));
+        }
+
+        self.load_notes_from_dir();
+        self.select_note_by_path(&file_path);
+        self.focus = Focus::Content;
+    }
+
     fn directory_has_notes(path: &PathBuf) -> bool {
         Self::directory_has_notes_recursive(path)
     }

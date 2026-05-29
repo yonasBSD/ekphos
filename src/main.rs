@@ -6,6 +6,7 @@ mod event;
 mod graph;
 mod highlight;
 mod highlight_worker;
+mod journal;
 mod search;
 mod ui;
 mod vim;

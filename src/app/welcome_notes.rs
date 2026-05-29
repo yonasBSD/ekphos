@@ -32,6 +32,7 @@ Use `Tab` or `Shift+Tab` to switch between panels.
 - `j/k`: Navigate up/down
 - `e`: Enter edit mode
 - `n`: Create new note
+- `t`: Open today's journal
 - `/`: Search notes
 - `?`: Show help dialog
 - `Ctrl+g`: Open graph view
