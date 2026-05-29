@@ -18,7 +18,12 @@ impl FindState {
         if self.forward {
             for (i, &c) in chars.iter().enumerate().skip(col + 1) {
                 if c == self.char {
-                    return Some(if self.till { i.saturating_sub(1).max(col + 1) } else { i });
+                    // `t` stops on the char *before* the match; `f` stops on the
+                    // match. `i >= col + 1`, so `i - 1` never underflows. (When the
+                    // match is adjacent, `i - 1 == col`, i.e. no movement — vim's
+                    // behavior. The operator-pending range is handled by the caller,
+                    // which treats these as inclusive motions.)
+                    return Some(if self.till { i - 1 } else { i });
                 }
             }
         } else {
@@ -27,7 +32,9 @@ impl FindState {
             }
             for i in (0..col).rev() {
                 if chars.get(i) == Some(&self.char) {
-                    return Some(if self.till { (i + 1).min(col.saturating_sub(1)) } else { i });
+                    // `T` stops on the char *after* the match; `F` stops on the
+                    // match. `i < col`, so `i + 1 <= col` (never past the cursor).
+                    return Some(if self.till { i + 1 } else { i });
                 }
             }
         }
@@ -179,6 +186,22 @@ mod tests {
         let find = FindState::new('e', true, true);
         let result = find.find_in_line("hello", 0);
         assert!(result.is_some());
+    }
+
+    // Regression: `t`/`T` to an adjacent target must stop on the char before/after
+    // it (no movement), not jump onto the target itself.
+    #[test]
+    fn test_till_forward_adjacent_stops_before_target() {
+        let find = FindState::new('e', true, true);
+        // 'e' is at col 1, adjacent to the cursor at col 0 -> stop at col 0.
+        assert_eq!(find.find_in_line("hello", 0), Some(0));
+    }
+
+    #[test]
+    fn test_till_backward_adjacent_stops_after_target() {
+        let find = FindState::new('b', false, true);
+        // 'b' is at col 1, adjacent to the cursor at col 2 -> stop at col 2.
+        assert_eq!(find.find_in_line("abc", 2), Some(2));
     }
 
     // ==================== Till Backward (T) Tests ====================

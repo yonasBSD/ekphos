@@ -73,7 +73,10 @@ fn parse_substitute(input: &str) -> Option<Command> {
     }
 
     let delimiter = input.chars().next()?;
-    let rest = &input[1..];
+    // Slice past the delimiter by its UTF-8 byte length, not a hardcoded 1, so a
+    // multi-byte delimiter char (e.g. `:%s世a世b`) doesn't slice on a non-char
+    // boundary and panic.
+    let rest = &input[delimiter.len_utf8()..];
     let parts: Vec<&str> = rest.split(delimiter).collect();
 
     if parts.len() < 2 {
@@ -150,6 +153,20 @@ mod tests {
             Some(Command::Substitute { pattern, replacement, .. })
             if pattern == "foo" && replacement == "bar"
         ));
+    }
+
+    // Regression: a multi-byte delimiter used to slice the input at byte index 1,
+    // landing inside the char and panicking. It must parse (or reject) safely.
+    #[test]
+    fn test_parse_substitute_multibyte_delimiter_no_panic() {
+        let cmd = parse_command("%s世foo世bar世g");
+        assert!(matches!(
+            cmd,
+            Some(Command::Substitute { pattern, replacement, .. })
+            if pattern == "foo" && replacement == "bar"
+        ));
+        // A multi-byte delimiter with too few parts is rejected, still no panic.
+        assert_eq!(parse_command("%s€only"), None);
     }
 
     #[test]

@@ -1448,10 +1448,13 @@ where
                         link_index += 1;
 
                         let total_link_len = 2 + bracket_end + 2 + paren_end + 1; // !![alt](url)
-                        for _ in 0..total_link_len - 1 {
+                        // total_link_len is a byte count; advance the char iterator
+                        // by byte position so multi-byte content doesn't over-skip.
+                        let link_end = i + total_link_len;
+                        while chars.peek().map_or(false, |&(j, _)| j < link_end) {
                             chars.next();
                         }
-                        current_start = i + total_link_len;
+                        current_start = link_end;
                         continue;
                     }
                 }
@@ -1468,10 +1471,13 @@ where
                         link_index += 1;
 
                         let total_link_len = 1 + bracket_end + 2 + paren_end + 1;
-                        for _ in 0..total_link_len - 1 {
+                        // total_link_len is a byte count; advance the char iterator
+                        // by byte position so multi-byte content doesn't over-skip.
+                        let link_end = i + total_link_len;
+                        while chars.peek().map_or(false, |&(j, _)| j < link_end) {
                             chars.next();
                         }
-                        current_start = i + total_link_len;
+                        current_start = link_end;
                         continue;
                     }
                 }
@@ -1526,10 +1532,13 @@ where
                         link_index += 1;
 
                         let total_link_len = 2 + close_pos + 2; // [[target]]
-                        for _ in 0..total_link_len - 1 {
+                        // total_link_len is a byte count; advance the char iterator
+                        // by byte position so multi-byte content doesn't over-skip.
+                        let link_end = i + total_link_len;
+                        while chars.peek().map_or(false, |&(j, _)| j < link_end) {
                             chars.next();
                         }
-                        current_start = i + total_link_len;
+                        current_start = link_end;
                         continue;
                     }
                 }
@@ -1567,10 +1576,13 @@ where
                     link_index += 1;
 
                     let total_link_len = bracket_end + 2 + paren_end + 1; // [text](url)
-                    for _ in 0..total_link_len - 1 {
+                    // total_link_len is a byte count; advance the char iterator
+                    // by byte position so multi-byte content doesn't over-skip.
+                    let link_end = i + total_link_len;
+                    while chars.peek().map_or(false, |&(j, _)| j < link_end) {
                         chars.next();
                     }
-                    current_start = i + total_link_len;
+                    current_start = link_end;
                     continue;
                 }
             }

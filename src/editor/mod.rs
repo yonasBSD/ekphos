@@ -379,6 +379,7 @@ pub struct Editor {
     h_scroll_offset: usize,
     view_height: usize,
     view_width: usize,
+    preferred_visual_x: Option<usize>,
     line_wrap_enabled: bool,
     tab_width: u16,
     left_padding: u16,
@@ -435,6 +436,7 @@ impl Editor {
             h_scroll_offset: 0,
             view_height: 0,
             view_width: 0,
+            preferred_visual_x: None,
             line_wrap_enabled: true,
             tab_width: 4,
             left_padding: 0,
@@ -1621,6 +1623,10 @@ impl Editor {
         let pos = self.cursor.pos();
         let line_count = self.buffer.line_count();
 
+        if !matches!(movement, CursorMove::Up | CursorMove::Down) {
+            self.preferred_visual_x = None;
+        }
+
         match movement {
             CursorMove::Forward => {
                 let line_len = self.buffer.line_len(pos.row);
@@ -1640,33 +1646,31 @@ impl Editor {
             }
             CursorMove::Up => {
                 if self.line_wrap_enabled && self.view_width > 0 {
-                    let content_width = self.view_width.saturating_sub(self.right_padding as usize);
+                    let content_width = self.wrap_content_width();
                     if content_width > 0 {
-                        let visual_line_in_row = pos.col / content_width;
-                        let col_in_visual_line = pos.col % content_width;
-                        let preferred_visual_col = self
-                            .cursor
-                            .preferred_col
-                            .map(|p| p % content_width)
-                            .unwrap_or(col_in_visual_line);
+                        let (cur_visual_line, cur_x) = self.cursor_wrapped_position();
+                        let preferred_x = self.preferred_visual_x.unwrap_or(cur_x);
+                        self.preferred_visual_x = Some(preferred_x);
 
-                        if visual_line_in_row > 0 {
-                            let new_col =
-                                (visual_line_in_row - 1) * content_width + preferred_visual_col;
-                            let line_len = self.buffer.line_len(pos.row);
-                            self.cursor
-                                .set_pos(Position::new(pos.row, new_col.min(line_len)), false);
+                        if cur_visual_line > 0 {
+                            let new_col = self.col_at_visual_pos(
+                                pos.row,
+                                cur_visual_line - 1,
+                                preferred_x,
+                                content_width,
+                            );
+                            self.cursor.set_pos(Position::new(pos.row, new_col), false);
                         } else if pos.row > 0 {
-                            let prev_len = self.buffer.line_len(pos.row - 1);
-                            let prev_visual_lines = if prev_len == 0 {
-                                1
-                            } else {
-                                (prev_len + content_width - 1) / content_width
-                            };
-                            let last_visual_line = prev_visual_lines - 1;
-                            let new_col = last_visual_line * content_width + preferred_visual_col;
+                            let prev_visual_lines =
+                                self.visual_lines_for_row(pos.row - 1, content_width);
+                            let new_col = self.col_at_visual_pos(
+                                pos.row - 1,
+                                prev_visual_lines.saturating_sub(1),
+                                preferred_x,
+                                content_width,
+                            );
                             self.cursor
-                                .set_pos(Position::new(pos.row - 1, new_col.min(prev_len)), false);
+                                .set_pos(Position::new(pos.row - 1, new_col), false);
                         }
                     } else if pos.row > 0 {
                         let preferred = self.cursor.preferred_col.unwrap_or(pos.col);
@@ -1683,33 +1687,26 @@ impl Editor {
             }
             CursorMove::Down => {
                 if self.line_wrap_enabled && self.view_width > 0 {
-                    let content_width = self.view_width.saturating_sub(self.right_padding as usize);
+                    let content_width = self.wrap_content_width();
                     if content_width > 0 {
-                        let line_len = self.buffer.line_len(pos.row);
-                        let total_visual_lines = if line_len == 0 {
-                            1
-                        } else {
-                            (line_len + content_width - 1) / content_width
-                        };
-                        let visual_line_in_row = pos.col / content_width;
-                        let col_in_visual_line = pos.col % content_width;
-                        let preferred_visual_col = self
-                            .cursor
-                            .preferred_col
-                            .map(|p| p % content_width)
-                            .unwrap_or(col_in_visual_line);
+                        let (cur_visual_line, cur_x) = self.cursor_wrapped_position();
+                        let preferred_x = self.preferred_visual_x.unwrap_or(cur_x);
+                        self.preferred_visual_x = Some(preferred_x);
+                        let total_visual_lines = self.visual_lines_for_row(pos.row, content_width);
 
-                        if visual_line_in_row + 1 < total_visual_lines {
-                            let new_col =
-                                (visual_line_in_row + 1) * content_width + preferred_visual_col;
-                            self.cursor
-                                .set_pos(Position::new(pos.row, new_col.min(line_len)), false);
-                        } else if pos.row + 1 < line_count {
-                            let next_len = self.buffer.line_len(pos.row + 1);
-                            self.cursor.set_pos(
-                                Position::new(pos.row + 1, preferred_visual_col.min(next_len)),
-                                false,
+                        if cur_visual_line + 1 < total_visual_lines {
+                            let new_col = self.col_at_visual_pos(
+                                pos.row,
+                                cur_visual_line + 1,
+                                preferred_x,
+                                content_width,
                             );
+                            self.cursor.set_pos(Position::new(pos.row, new_col), false);
+                        } else if pos.row + 1 < line_count {
+                            let new_col =
+                                self.col_at_visual_pos(pos.row + 1, 0, preferred_x, content_width);
+                            self.cursor
+                                .set_pos(Position::new(pos.row + 1, new_col), false);
                         }
                     } else if pos.row + 1 < line_count {
                         let preferred = self.cursor.preferred_col.unwrap_or(pos.col);
@@ -2248,21 +2245,42 @@ impl Editor {
         self.buffer.delete_line(row);
         self.wrap_cache.invalidate_from(row);
 
-        self.history.record(
-            EditOperation::Delete {
-                start: Position { row, col: 0 },
-                end: Position {
-                    row: row + 1,
-                    col: 0,
+        let cursor_after = Position {
+            row: row.min(self.buffer.line_count().saturating_sub(1)),
+            col: 0,
+        };
+
+        if line_count == 1 {
+            // Single-line buffer: the line isn't removed, its content is cleared
+            // in place (the buffer always keeps at least one line). Record a
+            // character-range delete with no trailing newline so undo restores the
+            // content without inserting a spurious empty line below it.
+            self.history.record(
+                EditOperation::Delete {
+                    start: Position { row: 0, col: 0 },
+                    end: Position {
+                        row: 0,
+                        col: line_text.chars().count(),
+                    },
+                    deleted_text: line_text,
                 },
-                deleted_text,
-            },
-            pos,
-            Position {
-                row: row.min(self.buffer.line_count().saturating_sub(1)),
-                col: 0,
-            },
-        );
+                pos,
+                cursor_after,
+            );
+        } else {
+            // Multi-line buffer: a whole line is removed. LineDelete's inverse
+            // (LineInsert) re-creates the line correctly even when it was the last
+            // line of the buffer, where a character-range Delete's inverse would
+            // target a row that no longer exists and silently lose the text.
+            self.history.record(
+                EditOperation::LineDelete {
+                    row,
+                    lines: vec![line_text],
+                },
+                pos,
+                cursor_after,
+            );
+        }
 
         let new_row = if line_count == 1 {
             0
@@ -3067,6 +3085,73 @@ impl Editor {
         (display_col, is_at_line_end, line_display_width)
     }
 
+    /// The wrap width used for line wrapping — identical to what the renderer
+    /// and `cursor_wrapped_position` use (content area minus gutter/padding).
+    fn wrap_content_width(&self) -> usize {
+        let content_x_offset = self.content_x_offset() as usize;
+        self.view_width
+            .saturating_sub(content_x_offset)
+            .saturating_sub(self.right_padding as usize)
+    }
+
+    /// Inverse of `cursor_wrapped_position`: given a target visual line within a
+    /// row and a target display column, return the char column whose cell covers
+    /// (or is nearest to) that display column. Mirrors the renderer's wrap walk,
+    /// including the leading-space skip on continuation lines, so vertical
+    /// navigation stays display-width-correct for wide chars and tabs.
+    fn col_at_visual_pos(
+        &self,
+        row: usize,
+        target_visual_line: usize,
+        target_x: usize,
+        content_width: usize,
+    ) -> usize {
+        let line = self.buffer.line(row).unwrap_or("");
+        let chars: Vec<char> = line.chars().collect();
+        if chars.is_empty() || content_width == 0 {
+            return 0;
+        }
+
+        let mut col = 0;
+        let mut visual_line = 0;
+        let mut is_wrapped_continuation = false;
+
+        while col < chars.len() {
+            if is_wrapped_continuation && chars[col] == ' ' {
+                col += 1;
+                if col >= chars.len() {
+                    break;
+                }
+            }
+
+            if visual_line == target_visual_line {
+                let mut x = 0;
+                while col < chars.len() && x < content_width {
+                    let w = char_display_width(chars[col], self.tab_width) as usize;
+                    if x + w > target_x {
+                        return col;
+                    }
+                    x += w;
+                    col += 1;
+                }
+                if col < chars.len() {
+                    return col.saturating_sub(1);
+                }
+                return col;
+            }
+
+            let mut x = 0;
+            while col < chars.len() && x < content_width {
+                x += char_display_width(chars[col], self.tab_width) as usize;
+                col += 1;
+            }
+            is_wrapped_continuation = true;
+            visual_line += 1;
+        }
+
+        chars.len()
+    }
+
     /// Returns the cursor's screen position accounting for line wrapping.
     pub fn cursor_wrapped_position(&self) -> (usize, usize) {
         if !self.line_wrap_enabled {
@@ -3775,5 +3860,70 @@ mod tests {
         ed.start_selection();
         ed.set_cursor(0, 5);
         assert_eq!(ed.selected_text().as_deref(), Some("Open "));
+    }
+
+    /// Regression: deleting the LAST line with `dd` must be undoable. The recorded
+    /// op used to target a row past the buffer end, so undo silently lost the text.
+    #[test]
+    fn dd_last_line_is_undoable() {
+        let mut ed = Editor::new(vec!["first".to_string(), "second".to_string()]);
+        ed.set_cursor(1, 0);
+        ed.delete_current_line();
+        assert_eq!(ed.lines(), vec!["first"]);
+        ed.undo();
+        assert_eq!(ed.lines(), vec!["first", "second"]);
+    }
+
+    /// Regression: `dd` on a single-line buffer clears the line in place; undo
+    /// restores the content without leaving a spurious extra empty line.
+    #[test]
+    fn dd_single_line_undo_has_no_extra_line() {
+        let mut ed = editor_with("only line");
+        ed.set_cursor(0, 0);
+        ed.delete_current_line();
+        assert_eq!(ed.lines(), vec![""]);
+        ed.undo();
+        assert_eq!(ed.lines(), vec!["only line"]);
+    }
+
+    /// `dd` on a middle line stays undoable (the previously-working path).
+    #[test]
+    fn dd_middle_line_is_undoable() {
+        let mut ed = Editor::new(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        ed.set_cursor(1, 0);
+        ed.delete_current_line();
+        assert_eq!(ed.lines(), vec!["a", "c"]);
+        ed.undo();
+        assert_eq!(ed.lines(), vec!["a", "b", "c"]);
+    }
+
+    /// Regression: wrapped Up/Down must use display width, not char index. With a
+    /// 4-cell content width, "一二三四五" (each CJK char is 2 cells wide) wraps to
+    /// 二-per-line, so Down advances by two chars per visual line.
+    #[test]
+    fn wrapped_down_uses_display_width_for_wide_chars() {
+        let mut ed = Editor::new(vec!["一二三四五".to_string()]);
+        ed.set_line_wrap(true);
+        ed.set_line_number_mode(LineNumberMode::None);
+        ed.set_view_size(5, 10); // content_width = 5 - right_padding(1) = 4 cells
+        ed.set_cursor(0, 0);
+        ed.move_cursor(CursorMove::Down);
+        assert_eq!(ed.cursor(), (0, 2)); // 3rd CJK char starts the 2nd visual line
+        ed.move_cursor(CursorMove::Down);
+        assert_eq!(ed.cursor(), (0, 4)); // 5th CJK char starts the 3rd visual line
+    }
+
+    /// Wrapped Up/Down keep the sticky display column for plain ASCII too.
+    #[test]
+    fn wrapped_navigation_ascii_roundtrip() {
+        let mut ed = editor_with("abcdefgh");
+        ed.set_line_wrap(true);
+        ed.set_line_number_mode(LineNumberMode::None);
+        ed.set_view_size(5, 10); // content_width 4 -> "abcd" / "efgh"
+        ed.set_cursor(0, 1); // 'b' (visual line 0, column 1)
+        ed.move_cursor(CursorMove::Down);
+        assert_eq!(ed.cursor(), (0, 5)); // 'f' (visual line 1, column 1)
+        ed.move_cursor(CursorMove::Up);
+        assert_eq!(ed.cursor(), (0, 1)); // back to 'b'
     }
 }

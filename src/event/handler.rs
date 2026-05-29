@@ -3412,35 +3412,54 @@ fn execute_motion_or_operator(app: &mut App, movement: CursorMove) {
 
 fn execute_find(app: &mut App, find: FindState) {
     let pos = app.editor.cursor();
-    if let Some(line) = app.editor.lines().get(pos.0) {
-        if let Some(new_col) = find.find_in_line(line, pos.1) {
-            // Check for pending operator (d, c, y, etc.)
-            if let Some(op) = app.pending_operator.take() {
-                app.editor.start_selection();
-                app.editor.set_cursor(pos.0, new_col);
-                match op {
-                    'd' => {
-                        app.editor.cut();
-                    }
-                    'c' => {
-                        app.editor.cut();
-                        app.vim_mode = VimMode::Insert;
-                        update_cursor_style(app);
-                    }
-                    'y' => {
-                        app.editor.copy();
-                        app.editor.cancel_selection();
-                        // Return to start position for yank
-                        app.editor.set_cursor(pos.0, pos.1);
-                    }
-                    _ => {
-                        app.editor.cancel_selection();
-                    }
-                }
-            } else {
-                app.editor.set_cursor(pos.0, new_col);
+    // Resolve the motion endpoint and line length in one scoped borrow so the
+    // immutable borrow of the buffer ends before the mutable edits below.
+    let resolved = {
+        let lines = app.editor.lines();
+        lines
+            .get(pos.0)
+            .and_then(|line| find.find_in_line(line, pos.1).map(|t| (t, line.chars().count())))
+    };
+    let (target_col, line_len) = match resolved {
+        Some(v) => v,
+        None => return,
+    };
+
+    // Check for pending operator (d, c, y, etc.)
+    if let Some(op) = app.pending_operator.take() {
+        // f/t/F/T are inclusive motions, so the operated-on range includes the
+        // motion endpoint. Build an explicit exclusive [start, end) selection
+        // (and force exclusive mode so a stale inclusive flag can't shift it).
+        let (sel_start, sel_end) = if find.forward {
+            (pos.1, (target_col + 1).min(line_len))
+        } else {
+            (target_col, pos.1)
+        };
+        app.editor.set_cursor(pos.0, sel_start);
+        app.editor.start_selection();
+        app.editor.set_inclusive_selection(false);
+        app.editor.set_cursor(pos.0, sel_end);
+        match op {
+            'd' => {
+                app.editor.cut();
+            }
+            'c' => {
+                app.editor.cut();
+                app.vim_mode = VimMode::Insert;
+                update_cursor_style(app);
+            }
+            'y' => {
+                app.editor.copy();
+                app.editor.cancel_selection();
+                // Return to start position for yank
+                app.editor.set_cursor(pos.0, pos.1);
+            }
+            _ => {
+                app.editor.cancel_selection();
             }
         }
+    } else {
+        app.editor.set_cursor(pos.0, target_col);
     }
 }
 
